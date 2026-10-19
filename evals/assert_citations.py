@@ -5,6 +5,10 @@ and the line is inside that file. With the `cite_must_contain` var set, a
 citation into a file that contains that text must point at a line holding it —
 a citation of the right file but the wrong line is the drift this is here to
 catch. Citations into other files, such as a caller, only have to exist.
+
+The match ignores case, spaces and punctuation, so a comment explaining the code
+("Strict objects: ...") counts for `strictObject`. That rule was agreed after
+reading real answers: citing the explanation is right, an unrelated line is not.
 """
 
 import re
@@ -12,6 +16,10 @@ from pathlib import Path
 
 FIXTURE_REPO = Path(__file__).resolve().parent / "fixture" / "repo"
 CITATION = re.compile(r"([\w./-]+\.(?:ts|tsx|js|json|yaml|yml|md|py)):(\d+)")
+
+
+def squash(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
 def resolve(cited):
@@ -22,7 +30,7 @@ def resolve(cited):
 
 
 def get_assert(output, context):
-    must_contain = (context.get("vars") or {}).get("cite_must_contain")
+    must_contain = squash((context.get("vars") or {}).get("cite_must_contain") or "")
     citations = CITATION.findall(output)
     if not citations:
         return {"pass": False, "score": 0, "reason": "no file:line citation in the answer"}
@@ -37,8 +45,8 @@ def get_assert(output, context):
         number = int(line)
         if not 1 <= number <= len(lines):
             bad.append(f"{cited}:{line} (file has {len(lines)} lines)")
-        elif (must_contain and any(must_contain in text for text in lines)
-              and must_contain not in lines[number - 1]):
+        elif (must_contain and any(must_contain in squash(text) for text in lines)
+              and must_contain not in squash(lines[number - 1])):
             bad.append(f"{cited}:{line} (line does not contain {must_contain!r})")
 
     good = len(citations) - len(bad)
