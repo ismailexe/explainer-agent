@@ -597,6 +597,48 @@ def briefing():
     return text if len(text) <= BRIEFING_LIMIT else text[:BRIEFING_LIMIT] + "\n… (cut)"
 
 
+# --------------------------------------------------------------------------
+# --forgotten: what a compaction took out of the main agent's context
+# --------------------------------------------------------------------------
+
+FORGOTTEN_KEEP = 150
+
+
+def print_forgotten(path):
+    """Each compaction summary, beside the user's own words from before it.
+
+    The main agent keeps only the summary; the transcript keeps everything. Which
+    lost line still matters is a judgment, so it is left to the model — this only
+    lays the two side by side, in order, with the moment each was said.
+    """
+    said, found = [], False
+    with Path(path).open(encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("type") != "user" or entry.get("isSidechain") or entry.get("isMeta"):
+                continue
+            text = text_of(entry)
+            if entry.get("isCompactSummary"):
+                found = True
+                print(f"## compaction at {clock(entry)}: what the main agent kept\n")
+                print(text[:4000] + (" …" if len(text) > 4000 else ""))
+                print(f"\n## the user's own words before it ({len(said)} messages)\n")
+                shown = said if len(said) <= FORGOTTEN_KEEP else (
+                    said[: FORGOTTEN_KEEP // 2]
+                    + [f"… {len(said) - FORGOTTEN_KEEP} more in between; --grep finds them"]
+                    + said[-FORGOTTEN_KEEP // 2:])
+                print("\n".join(shown) + "\n")
+                said = []
+            elif len(text) >= 10 and not text.startswith("<"):
+                said.append(f"[{clock(entry)}] {text[:240]}")
+    if not found:
+        print("no compaction in this session: nothing has been summarised away, and the")
+        print("main agent still has the whole conversation in its context.")
+
+
 def print_sources(args):
     # Project knowledge follows the main agent: when it works in another
     # worktree, that checkout's EXPLAINER.md and its repository's memory apply.
@@ -739,6 +781,7 @@ def main():
     ap.add_argument("--since", metavar="TIME", help='only messages after this time: HH:MM (today), "MM-DD HH:MM" or ISO timestamp')
     ap.add_argument("--sources", action="store_true", help="inventory of everything worth reading, instead of the transcript")
     ap.add_argument("--briefing", action="store_true", help="the short orientation `explainer` puts in the system prompt at launch")
+    ap.add_argument("--forgotten", action="store_true", help="each compaction summary beside the user's own words from before it")
     ap.add_argument("--resolve-target", action="store_true", help="print the path of the session to explain, excluding this one")
     ap.add_argument("--list-sessions", action="store_true", help="every candidate session for this directory, newest first")
     ap.add_argument("--new", action="store_true", help="only what was appended since this chat last read; the position is remembered for you")
@@ -776,6 +819,10 @@ def main():
 
     if args.briefing:
         print(briefing())
+        return
+
+    if args.forgotten:
+        print_forgotten(Path(args.file).expanduser() if args.file else pick_file(args.nth))
         return
 
     if args.new:

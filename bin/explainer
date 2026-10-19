@@ -107,6 +107,14 @@ done < <(git worktree list --porcelain 2>/dev/null || true)
 
 export EXPLAINER_TRANSCRIPT="$transcript"
 
+# This project's entry under Claude Code's projects tree: its memory/ and the
+# private EXPLAINER.md. It lies outside every checkout, where cat was measured
+# to be refused, so without it the agent could not read the memory notes its
+# instructions send it to. Resolved after EXPLAINER_TRANSCRIPT, because project
+# knowledge follows the main agent.
+project_dir="$(python3 "$layout_py" project-dir 2>/dev/null || true)"
+[ -n "$project_dir" ] && [ -d "$project_dir" ] && settings+=(--add-dir "$project_dir")
+
 # What the explainer knows before its first tool call: the project, its recent
 # history and where the work session stands, built here in code and appended to
 # the system prompt. Left in TMPDIR because claude reads it after this script is

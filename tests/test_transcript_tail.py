@@ -903,10 +903,72 @@ class Launcher(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn("--add-dir", self.called.read_text())
 
+    def test_the_memory_directory_is_handed_over(self):
+        # Memory lives under the projects tree, outside every checkout, where
+        # `cat` is refused unless the directory is added.
+        root = Path(self.tmp.name).resolve()
+        entry = Path(self.env["EXPLAINER_PROJECTS_DIR"]) / layout.slug(root)
+        (entry / "memory").mkdir(parents=True)
+        (entry / "memory" / "note.md").write_text("why it is like this")
+        run = self.run_explainer("--transcript", str(self.transcript), "q")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f"--add-dir {entry}", self.called.read_text())
+
     def test_a_question_starting_with_a_dash_goes_after_double_dash(self):
         run = self.run_explainer("--transcript", str(self.transcript), "--", "-x what is this")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("-x what is this", self.called.read_text())
+
+
+class Forgotten(unittest.TestCase):
+    """--forgotten lays each compaction summary beside what came before it."""
+
+    def write(self, entries):
+        fh = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+        for e in entries:
+            fh.write(json.dumps(e) + "\n")
+        fh.close()
+        self.addCleanup(os.unlink, fh.name)
+        return Path(fh.name)
+
+    def run_forgotten(self, path):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            tt.print_forgotten(path)
+        return out.getvalue()
+
+    def user(self, text, stamp="2026-10-17T10:00:00Z", **extra):
+        return {"type": "user", "timestamp": stamp, "message": {"content": text}, **extra}
+
+    def test_the_summary_sits_beside_the_words_before_it(self):
+        out = self.run_forgotten(self.write([
+            self.user("never log ticket bodies, legal says so"),
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "noted"}]}},
+            self.user("<command-name>/clear</command-name>"),
+            self.user("<task-notification>background job finished</task-notification>"),
+            self.user("ok"),
+            self.user("Summary: building relay.", isCompactSummary=True),
+            self.user("add retries please", stamp="2026-10-18T10:00:00Z"),
+        ]))
+        kept, _, before = out.partition("the user's own words before it")
+        self.assertIn("Summary: building relay.", kept)
+        self.assertIn("never log ticket bodies", before)
+        self.assertNotIn("/clear", before)              # command wrappers are not words
+        self.assertNotIn("background job", before)      # nor is harness markup
+        self.assertNotIn("add retries please", out)       # after the last compaction
+
+    def test_without_a_compaction_it_says_nothing_was_lost(self):
+        out = self.run_forgotten(self.write([self.user("hello there, start")]))
+        self.assertIn("no compaction in this session", out)
+
+    def test_a_long_stretch_keeps_its_beginning_and_end(self):
+        entries = [self.user(f"request number {i:03}") for i in range(400)]
+        entries.append(self.user("Summary.", isCompactSummary=True))
+        out = self.run_forgotten(self.write(entries))
+        self.assertIn("request number 000", out)          # early constraints survive
+        self.assertIn("request number 399", out)
+        self.assertIn("more in between", out)
+        self.assertNotIn("request number 200", out)
 
 
 class AnswerLanguage(unittest.TestCase):
