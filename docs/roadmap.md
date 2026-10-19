@@ -22,8 +22,9 @@ work repository (TypeScript on Cloudflare Workers; the work session it explained
 
 - **Eval harness: promptfoo.** It is a development-only Node dependency; installing the
   explainer still needs nothing but Claude Code and Python 3.
-- **Answer language: the language of the question.** `EXPLAINER_LANG` only pins a
-  language. Terminology stays English in every language.
+- **Answer language, in order:** `EXPLAINER_LANG` when set; otherwise the `language`
+  in the user's Claude Code settings, when set; otherwise the language of the
+  question. Terminology stays English in every language.
 - **Explainer chats are listed from their transcripts** (`agentSetting: "explainer"`),
   not from a registry. `explainer-sessions.txt` goes away.
 - **Bringing an explainer back:** a closed chat is resumed; a chat still open in another
@@ -141,9 +142,13 @@ and a dependency that `package.json` lists and the file imports.
 **Plan.** If verifying costs one or two reads, verify.
 
 ### J · Answer language
-A question asked in English got a Turkish answer.
+A question asked in English got a Turkish answer. Two things decide it today: the
+agent definition defaults to Turkish, and the user's own Claude Code `language`
+setting and `CLAUDE.md` load into the explainer like into any session.
 
-**Plan.** Answer in the language of the question (see Decisions).
+**Plan.** Apply the order in Decisions: `EXPLAINER_LANG`, then the settings
+`language`, then the question's language. The eval covers both sides: a case with a
+`language` setting, and cases without one.
 
 ### K · Citation drift
 One `file:line` citation was a line off. Every other citation checked in testing was
@@ -152,8 +157,26 @@ exact.
 **Plan.** Quote the cited line in the answer, and add citation accuracy as an eval
 dimension.
 
+### L · Compaction summaries print as the user
+A compaction summary is stored as a `user` entry with `isCompactSummary: true`, and
+`transcript-tail.py` prints it under `USER`. The explainer is shown Claude Code's
+automatic summary as if the user had written it. The baseline run passed the
+attribution case anyway, so the cost is a risk rather than an observed failure.
+
+**Plan.** Render it under its own label, such as `COMPACTION SUMMARY`.
+
+### M · Times without dates
+Messages print as `[HH:MM]`, and `--since HH:MM` assumes today. A session that spans
+several days becomes ambiguous; the real session behind these findings ran across
+three days.
+
+**Plan.** Print the date whenever the transcript spans more than one day, and accept a
+date in `--since`.
+
 ### Length
-Answers ran 18 to 25 lines where about 12 is the target.
+Answers ran 18 to 25 lines where about 12 is the target. The eval measures words
+rather than lines: a terminal wraps a long paragraph, so a line count lets padding
+through.
 
 **Plan.** Put 3 to 5 example answers written at the target length into the agent
 prompt. The eval checks length in code.
@@ -191,7 +214,7 @@ prompt. The eval checks length in code.
 0. First commit of the current state.
 1. This roadmap.
 2. Eval suite and baseline.
-3. Code fixes: E, F, D, then C, B, A.
+3. Code fixes: E, F, D, L, M, then C, B, A.
 4. Answer contract: G, H, I, J, K and length, each measured against the baseline.
 5. Forgotten context.
 6. Publication:
