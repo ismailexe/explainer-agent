@@ -909,6 +909,26 @@ class Launcher(unittest.TestCase):
         self.assertIn("-x what is this", self.called.read_text())
 
 
+class AnswerLanguage(unittest.TestCase):
+    """EXPLAINER_LANG pins the language; without it nothing is pinned here, and the
+    agent falls back to Claude Code's own setting, then to the question's language."""
+
+    def setUp(self):
+        self.saved = os.environ.pop("EXPLAINER_LANG", None)
+
+    def tearDown(self):
+        os.environ.pop("EXPLAINER_LANG", None)
+        if self.saved is not None:
+            os.environ["EXPLAINER_LANG"] = self.saved
+
+    def test_nothing_is_pinned_by_default(self):
+        self.assertEqual(layout.answer_language(), "")
+
+    def test_explainer_lang_pins_it(self):
+        os.environ["EXPLAINER_LANG"] = "German"
+        self.assertEqual(layout.answer_language(), "German")
+
+
 class Since(unittest.TestCase):
     def test_reads_back_the_date_and_time_this_script_prints(self):
         when = tt.parse_since("01-05 09:30")

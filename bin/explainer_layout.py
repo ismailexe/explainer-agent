@@ -435,13 +435,15 @@ def run_mode():
 
 
 def answer_language():
-    """The language the explainer answers in.
+    """The language pinned for the explainer's answers, or "" when none is.
 
-    Turkish is the default because the project exists to teach English technical
-    vocabulary inside Turkish sentences. EXPLAINER_LANG overrides it, and it is
-    the single point of variation — no per-project copy of the language rule.
+    The order is EXPLAINER_LANG, then the `language` in the user's Claude Code
+    settings, then the language of the question. Only the first is resolved
+    here: Claude Code already puts its own `language` setting into the system
+    prompt, and reading the settings files again would be a second, drifting
+    copy of how Claude Code layers them.
     """
-    return os.environ.get("EXPLAINER_LANG", "").strip() or "Turkish"
+    return os.environ.get("EXPLAINER_LANG", "").strip()
 
 
 def resolve_project(cwd=None):

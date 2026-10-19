@@ -146,10 +146,11 @@ belongs in `EXPLAINER.md`.
 
 ## Language
 
-Turkish sentences, English terminology, by default. Set `EXPLAINER_LANG` to answer in
-another language — **the terminology stays English regardless**, which is the whole
-point: the term is what you have to type into a search box, read in an error message,
-and recognise in your own codebase.
+The explainer answers in `EXPLAINER_LANG` when it is set; otherwise in the `language`
+of your Claude Code settings, when that is set; otherwise in the language you asked
+in. **The terminology stays English regardless**, which is the whole point: the term
+is what you have to type into a search box, read in an error message, and recognise
+in your own codebase.
 
 ## What it will not do
 

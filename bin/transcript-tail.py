@@ -683,7 +683,12 @@ def print_sources(args):
         print(f"it will live at: {glossary_dir(project) if project else '(unknown project dir)'}\n")
 
     print("## 4 · how to answer")
-    print(f"answer language: {answer_language()}   (override with EXPLAINER_LANG)")
+    pinned = answer_language()
+    if pinned:
+        print(f"answer language: {pinned}   (pinned by EXPLAINER_LANG)")
+    else:
+        print("answer language: not pinned — use the response language your system prompt")
+        print("                 sets, if it sets one; otherwise the language of his question")
     print("technical terms stay in English regardless of the answer language.")
     mode = run_mode()
     print(f"run mode       : {mode}")
