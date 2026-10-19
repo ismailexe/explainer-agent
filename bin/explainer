@@ -61,7 +61,9 @@ if [ -z "$transcript" ]; then
   transcript="$("$tail_py" --resolve-target)"
 fi
 
-session="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+# Python, not uuidgen: python3 is already required, and uuidgen is missing from
+# many Linux installs.
+session="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 
 # Read-only at the tool layer, not merely by instruction. The agent definition
 # says the same thing, but a prompt is a request and this is a refusal.
