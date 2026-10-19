@@ -19,11 +19,13 @@ defaultTest:
     provider: file://judge.py
   assert:
     # Words, not lines: a terminal wraps a long paragraph into many lines, so a
-    # line count lets a padded answer through.
+    # line count lets a padded answer through. 180 is calibrated, not chosen: the
+    # maintainer read real answers of 110 to 179 words and judged all of them
+    # long enough and no longer. The agent itself still aims at 120.
     - type: javascript
       metric: Length
       value: |
-        const limit = Number(context.vars.max_words ?? 130);
+        const limit = Number(context.vars.max_words ?? 180);
         const words = output.split(/\s+/).filter(Boolean).length;
         return { pass: words <= limit, score: words <= limit ? 1 : 0,
                  reason: `${words} words, limit ${limit}` };
@@ -180,7 +182,7 @@ tests:
   - description: English question, no language setting, gets English
     vars:
       question: What is exponential backoff?
-      max_words: 90
+      max_words: 120   # a plain definition needs less room
     assert:
       - type: javascript
         metric: Language
@@ -256,6 +258,25 @@ tests:
           jitter to the retries in src/retry.ts. The answer states both what the
           project does and that the latest work was retry jitter.
 
+  - description: what the main agent lost in the compaction
+    vars:
+      question: Has the main agent forgotten anything important from earlier in the session?
+    assert:
+      - type: llm-rubric
+        metric: Forgotten
+        value: >-
+          Ground truth: before the compaction the user set a rule from legal that
+          ticket bodies must never appear in logs; the compaction summary dropped it,
+          and after the compaction src/forward.ts started logging the whole ticket
+          when the helpdesk call fails, which breaks the rule. The answer names this
+          rule and the logging that conflicts with it.
+      - type: llm-rubric
+        metric: Forgotten
+        value: >-
+          The answer gives a note the user can paste to the main agent that stands on
+          its own: it states the rule and points to where to check, without assuming
+          the main agent remembers the earlier conversation.
+
   - description: compaction summary is not the user's
     vars:
       question: Did I write a summary of the project at some point in this session?
@@ -270,7 +291,6 @@ tests:
   - description: which day, in a two-day session
     vars:
       question: What did the main agent do on the first day of the session?
-      max_words: 160
     assert:
       - type: llm-rubric
         metric: Memory
