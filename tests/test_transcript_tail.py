@@ -383,24 +383,24 @@ class Cursor(unittest.TestCase):
 
     def test_first_look_returns_the_tail_and_marks_the_position(self):
         for i in range(5):
-            self.append(f"mesaj {i}")
+            self.append(f"message {i}")
         messages, kind = tt.load_since_cursor(self.path, default_args(turns=2))
         self.assertEqual(kind, "first")
         self.assertEqual(len(messages), 2)
-        self.assertIn("mesaj 4", messages[-1])
+        self.assertIn("message 4", messages[-1])
 
     def test_second_look_returns_only_what_was_appended(self):
-        self.append("eski")
+        self.append("old")
         tt.load_since_cursor(self.path, default_args(turns=10))
-        self.append("yeni bir sey")
+        self.append("something new")
         messages, kind = tt.load_since_cursor(self.path, default_args())
         self.assertEqual(kind, "incremental")
         self.assertEqual(len(messages), 1)
-        self.assertIn("yeni bir sey", messages[0])
-        self.assertNotIn("eski", messages[0])
+        self.assertIn("something new", messages[0])
+        self.assertNotIn("old", messages[0])
 
     def test_a_look_with_nothing_new_returns_nothing(self):
-        self.append("eski")
+        self.append("old")
         tt.load_since_cursor(self.path, default_args())
         messages, kind = tt.load_since_cursor(self.path, default_args())
         self.assertEqual((messages, kind), ([], "incremental"))
@@ -408,19 +408,19 @@ class Cursor(unittest.TestCase):
     def test_a_half_written_final_line_is_left_for_next_time(self):
         # The transcript is appended to live, so the last line is often truncated
         # mid-flush. Consuming it would lose the message once it completes.
-        self.append("tam")
+        self.append("complete")
         tt.load_since_cursor(self.path, default_args())
-        self.append("yarim kalan", partial=True)
+        self.append("half written", partial=True)
         messages, _ = tt.load_since_cursor(self.path, default_args())
         self.assertEqual(messages, [])
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write("\n")
         messages, _ = tt.load_since_cursor(self.path, default_args())
         self.assertEqual(len(messages), 1)
-        self.assertIn("yarim kalan", messages[0])
+        self.assertIn("half written", messages[0])
 
     def test_two_chats_keep_separate_positions(self):
-        self.append("bir")
+        self.append("one")
         tt.load_since_cursor(self.path, default_args())
         os.environ["CLAUDE_CODE_SESSION_ID"] = "chat-two"
         messages, kind = tt.load_since_cursor(self.path, default_args(turns=10))
@@ -429,17 +429,17 @@ class Cursor(unittest.TestCase):
 
     def test_a_replaced_file_is_read_from_the_start(self):
         for i in range(3):
-            self.append(f"mesaj {i}")
+            self.append(f"message {i}")
         tt.load_since_cursor(self.path, default_args())
         self.path.write_text("")                 # truncated / rotated under us
-        self.append("yeniden")
+        self.append("again")
         messages, _ = tt.load_since_cursor(self.path, default_args())
         self.assertEqual(len(messages), 1)
-        self.assertIn("yeniden", messages[0])
+        self.assertIn("again", messages[0])
 
     def test_each_chat_saves_into_a_file_of_its_own(self):
         # One shared file let two chats saving at once erase each other's update.
-        self.append("bir")
+        self.append("one")
         tt.load_since_cursor(self.path, default_args())
         first = layout.cursor_path(self.path)
         os.environ["CLAUDE_CODE_SESSION_ID"] = "chat-two"
@@ -485,10 +485,10 @@ class Gate(unittest.TestCase):
         import argparse, json as _json, tempfile as _tf, os as _os
         lines = []
         for i, text in enumerate([
-            "eski konu: `stale term` burada geciyordu",
-            "yolu /Users/x/order-service/internal/ledger.go icinde",
+            "old topic: `stale term` came up here",
+            "the path is /Users/x/order-service/internal/ledger.go",
             "```\nread_text() and parse_args()\n```",
-            "burada bir `deduplication table` var",
+            "there is a `deduplication table` here",
         ]):
             lines.append(_json.dumps({
                 "type": "assistant", "timestamp": f"2026-09-02T1{i}:00:00Z",
@@ -583,10 +583,10 @@ class Render(unittest.TestCase):
                 "timestamp": "2026-09-02T10:30:00Z", **extra}
 
     def test_strips_system_reminders_and_command_wrappers(self):
-        text = "asil soru<system-reminder>gurultu</system-reminder><command-name>/explain</command-name>"
+        text = "the real question<system-reminder>noise</system-reminder><command-name>/explain</command-name>"
         out = tt.render(self.entry("user", text), default_args())
-        self.assertIn("asil soru", out)
-        self.assertNotIn("gurultu", out)
+        self.assertIn("the real question", out)
+        self.assertNotIn("noise", out)
         self.assertNotIn("/explain", out)
 
     def test_drops_subagent_chatter_unless_asked(self):
@@ -596,17 +596,17 @@ class Render(unittest.TestCase):
 
     def test_hides_thinking_and_tool_results_by_default(self):
         blocks = [
-            {"type": "text", "text": "cevap"},
-            {"type": "thinking", "thinking": "ic ses"},
-            {"type": "tool_result", "content": "cikti"},
+            {"type": "text", "text": "answer"},
+            {"type": "thinking", "thinking": "inner voice"},
+            {"type": "tool_result", "content": "output"},
         ]
         plain = tt.render(self.entry("assistant", blocks), default_args())
-        self.assertNotIn("ic ses", plain)
-        self.assertNotIn("cikti", plain)
+        self.assertNotIn("inner voice", plain)
+        self.assertNotIn("output", plain)
         loud = tt.render(self.entry("assistant", blocks),
                          default_args(thinking=True, tool_results=True))
-        self.assertIn("ic ses", loud)
-        self.assertIn("cikti", loud)
+        self.assertIn("inner voice", loud)
+        self.assertIn("output", loud)
 
     def test_ignores_line_types_that_are_not_conversation(self):
         for kind in ("system", "file-history-snapshot", "ai-title", "permission-mode"):
@@ -1011,14 +1011,14 @@ class Load(unittest.TestCase):
         # The transcript is appended to while the session runs, so the last line
         # can be truncated mid-flush. That must not take the whole read down.
         with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
-            fh.write(json.dumps({"type": "user", "message": {"content": "tam satir"},
+            fh.write(json.dumps({"type": "user", "message": {"content": "whole line"},
                                  "timestamp": "2026-09-02T10:00:00Z"}) + "\n")
             fh.write('{"type": "assistant", "message": {"cont')
             path = Path(fh.name)
         try:
             messages = tt.load(path, default_args())
             self.assertEqual(len(messages), 1)
-            self.assertIn("tam satir", messages[0])
+            self.assertIn("whole line", messages[0])
         finally:
             os.unlink(path)
 

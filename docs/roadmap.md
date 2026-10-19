@@ -262,11 +262,13 @@ prompt. The eval checks length in code.
    its own 3 of 3 times with it and 1 of 3 without, and stayed on the one item
    that mattered. The fixture is too short to show the main gain: a real
    13,467-line session comes down to 14 KB. A long fixture would measure that.
-6. Publication:
+6. Publication (done 2026-10-19, apart from the demo recording):
    - the design history, rewritten in English as `docs/design.md`;
-   - remove personal names and paths;
-   - fill in the README install placeholder;
-   - add a LICENSE and a demo recording.
+   - personal names, machine paths and a work project's names removed from the
+     files and, with `git filter-repo`, from the history;
+   - the README install placeholder filled in;
+   - an MIT LICENSE added;
+   - a demo recording, still to be made by the maintainer.
 
 ## References
 

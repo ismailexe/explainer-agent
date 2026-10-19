@@ -39,17 +39,26 @@ memory, the notes kept outside the repository, the code, and the web — in that
 An explanation that only rephrases what the main agent said is worthless, because you
 already read that.
 
+It follows the main agent. When the work session moves to another worktree or
+branch, the explainer checks claims against the files there, not against its own
+directory. It opens with a short briefing built from the project — what it is, its
+recent commits, where the work session stands — so it can orient you before it has
+read anything. And when the main agent's context has been compacted, ask the
+explainer what was lost: it compares each compaction summary with what you said
+before it, and gives you a note to paste back.
+
 ## Install
 
 ```sh
-git clone <this repo>
+git clone https://github.com/ismailexe/explainer-agent.git
 cd explainer-agent
 ./install.sh
 ```
 
-`install.sh` symlinks four files into `~/.claude/` (`bin/`, `agents/`, `commands/`),
-so editing the repository edits the running agent and there is no second copy to
-drift. Any regular file it replaces is kept as `<name>.pre-explainer-agent`.
+`install.sh` symlinks the launcher, its scripts, the two agents and the `/explain`
+command into `~/.claude/` (`bin/`, `agents/`, `commands/`), so editing the repository
+edits the running agent and there is no second copy to drift. Any regular file it
+replaces is kept as `<name>.pre-explainer-agent`.
 
 Put `~/.claude/bin` on your `PATH` to call `explainer` by name.
 
@@ -159,19 +168,32 @@ runs builds, tests, servers or migrations, never starts or stops anything, and n
 tells the main agent what to do — it can only tell you what to ask. The single thing
 it writes is one glossary entry.
 
-If it cannot verify a claim it is required to say so rather than fill the gap with
+Every claim it makes carries one verdict: verified, with the line quoted; verified
+absent, with where it looked; or unverified, with why. It never fills a gap with
 something plausible, because you cannot check it.
+
+## How good the answers are
+
+`evals/` holds an answer-quality suite: questions about a synthetic work session,
+each graded for premises, verdicts, citations, terminology, language and length. The
+roadmap records each change and what it did to the scores. In short, the share of
+cases passing every check went from 51% to 77% across the first month's fixes, and the
+two features with a before-and-after case — following the main agent across
+worktrees and the launch briefing — went from 0 of 3 to 3 of 3.
+
+Why it is built the way it is: [`docs/design.md`](docs/design.md). What was found in
+real use and done about it: [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Limits worth knowing
 
 - **Claude Code only.** The layout knowledge is isolated in `bin/explainer_layout.py`,
   but the design leans on a primitive other harnesses do not have.
-- **Run it inside the same checkout as the work session** — the same directory, or
-  anywhere below it. Worktrees are separate checkouts and stay separate: a session
-  in one worktree is invisible from another, and from the main repo, which is what
-  you want when four of them are running at once. Memory is the opposite and is
-  shared by every worktree of the repository. `explainer --sessions` shows what was
-  found from where you are, and `--transcript PATH` names one outright.
+- **Start it inside the checkout the work session was opened in** — the same
+  directory, or anywhere below it. That is how it finds the conversation: a session
+  opened in another worktree is invisible from here, which is what you want when four
+  of them are running at once. Once attached, it follows the main agent wherever that
+  goes. `explainer --sessions` shows what was found from where you are, and
+  `--transcript PATH` names one outright.
 - **It reads the transcript, not your mind.** Anything that happened outside the
   session — something you saw in a browser, said out loud, or did in another pane — it
   cannot know about.
