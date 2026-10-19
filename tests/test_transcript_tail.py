@@ -49,6 +49,34 @@ class Slug(unittest.TestCase):
                          "-Users-dev-Desktop-work-order-service")
 
 
+class ProjectsDir(unittest.TestCase):
+    """Where the per-project tree lives, before anything is resolved inside it."""
+
+    def test_defaults_to_the_home_claude_directory(self):
+        self.assertEqual(layout.projects_dir({}), layout.HOME / ".claude" / "projects")
+
+    def test_follows_claude_config_dir(self):
+        # Claude Code relocates everything under CLAUDE_CONFIG_DIR; reading
+        # ~/.claude there would explain a conversation that is not the live one.
+        self.assertEqual(
+            layout.projects_dir({"CLAUDE_CONFIG_DIR": "/srv/claude"}),
+            Path("/srv/claude/projects"),
+        )
+
+    def test_explainer_override_wins_over_both(self):
+        self.assertEqual(
+            layout.projects_dir({"EXPLAINER_PROJECTS_DIR": "/tmp/case-7/projects",
+                                 "CLAUDE_CONFIG_DIR": "/srv/claude"}),
+            Path("/tmp/case-7/projects"),
+        )
+
+    def test_blank_values_are_ignored(self):
+        self.assertEqual(
+            layout.projects_dir({"EXPLAINER_PROJECTS_DIR": " ", "CLAUDE_CONFIG_DIR": ""}),
+            layout.HOME / ".claude" / "projects",
+        )
+
+
 class MainWorktree(unittest.TestCase):
     """A worktree session must resolve to the main repo, or it reads no memory."""
 

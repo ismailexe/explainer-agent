@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from explainer_layout import (  # noqa: E402
     HOME,
+    PROJECTS,
     SKIPPED_FILE,
     read_cursor,
     answer_language,
@@ -445,7 +446,7 @@ def print_sources(args):
         print(f"repo       : {repo}")
     else:
         print("repo       : (not a git repository)")
-    print(f"project dir: {project if project else '(none found under ~/.claude/projects)'}")
+    print(f"project dir: {project if project else f'(none found under {PROJECTS})'}")
 
     try:
         transcript = Path(args.file).expanduser() if args.file else pick_file(args.nth)

@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from explainer_layout import SKIPPED_FILE, glossary_dir, resolve_project  # noqa: E402
+from explainer_layout import PROJECTS, SKIPPED_FILE, glossary_dir, resolve_project  # noqa: E402
 
 FILENAME_CHARS = re.compile(r"[^a-z0-9]+")
 FIELDS = ("local", "industry", "search")
@@ -51,7 +51,7 @@ def directory(create=False):
     target = glossary_dir(project)
     if not target:
         sys.exit(
-            "cannot locate this project's directory under ~/.claude/projects — "
+            f"cannot locate this project's directory under {PROJECTS} — "
             "run transcript-tail.py --sources to see what was resolved"
         )
     if create:

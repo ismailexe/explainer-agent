@@ -18,7 +18,25 @@ from pathlib import Path
 
 
 HOME = Path.home()
-PROJECTS = HOME / ".claude" / "projects"
+
+
+def projects_dir(env=None):
+    """Where Claude Code keeps per-project transcripts and memory.
+
+    Claude Code moves its whole configuration directory when CLAUDE_CONFIG_DIR is
+    set, so a fixed ~/.claude would read a stale tree on those machines.
+    EXPLAINER_PROJECTS_DIR points the explainer alone somewhere else — the eval
+    suite uses it to give every case an empty world of its own.
+    """
+    env = os.environ if env is None else env
+    override = env.get("EXPLAINER_PROJECTS_DIR", "").strip()
+    if override:
+        return Path(override).expanduser()
+    config = env.get("CLAUDE_CONFIG_DIR", "").strip()
+    return (Path(config).expanduser() if config else HOME / ".claude") / "projects"
+
+
+PROJECTS = projects_dir()
 
 # Measured against all 57 project directories on this machine: every character
 # outside [A-Za-z0-9] becomes "-", not just "/". Paths carrying "_" or "." (macOS
@@ -213,7 +231,7 @@ def pick_file(nth):
     pool = sessions_for_cwd()
     if not pool:
         sys.exit(
-            "no transcript found for this directory under ~/.claude/projects — "
+            f"no transcript found for this directory under {PROJECTS} — "
             "name one with --file"
         )
     if nth > len(pool):
