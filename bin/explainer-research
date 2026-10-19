@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Bring this project's glossary up to date with the conversation.
+#
+#   explainer-research                only what was said in the last 25 messages
+#   explainer-research --since 14:00  everything after that clock time
+#   explainer-research --max 5        raise the ceiling on terms per run
+#   explainer-research --dry-run      show the candidates, call no model
+#
+# Why this is a command and not something the explainer does on its own: it was
+# written into the explainer's prompt first, as housekeeping to do while
+# answering. Measured across three real questions, it fired zero times out of
+# three - a model with a concrete question in front of it does the question and
+# skips the optional chore, every time. Deciding *when* is deterministic work, so
+# it belongs in a script; deciding *what* needs judgement, so that part still
+# calls a model. The gate below is free, so a run with nothing new costs nothing.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tail_py="$here/transcript-tail.py"
+
+since=""; max=3; dry=0; window=25
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --since) since="${2:?--since needs a time}"; shift 2 ;;
+    --max) max="${2:?--max needs a number}"; shift 2 ;;
+    --window) window="${2:?--window needs a number}"; shift 2 ;;
+    --dry-run) dry=1; shift ;;
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+gate=(--candidates --turns "$window")
+[ -n "$since" ] && gate=(--candidates --since "$since")
+
+# Free: no model runs unless there is something unrecorded to judge.
+if ! candidates="$("$tail_py" "${gate[@]}" 2>&1)"; then
+  echo "glossary is current — nothing new was named in this stretch."
+  exit 0
+fi
+
+if [ "$dry" = 1 ]; then
+  echo "$candidates"
+  exit 0
+fi
+
+read -r -d '' task <<EOF || true
+These names appeared in a working conversation in this repository and are not yet
+in the glossary. Sort them, skip the ones that are not concepts, and look up at
+most ${max} that are.
+
+${candidates}
+EOF
+
+exec claude -p --agent explainer-researcher \
+  --setting-sources user \
+  --allowedTools \
+    "Read" "Grep" "Glob" "WebSearch" "WebFetch" \
+    "Bash(~/.claude/bin/explainer-glossary.py:*)" \
+    "Bash($HOME/.claude/bin/explainer-glossary.py:*)" \
+    "Bash($here/explainer-glossary.py:*)" \
+    "Bash(grep:*)" "Bash(rg:*)" "Bash(cat:*)" "Bash(sed:*)" "Bash(ls:*)" \
+  -- "$task" </dev/null

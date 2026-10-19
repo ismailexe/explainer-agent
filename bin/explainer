@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Run the explainer as its own claude process, against the work session's transcript.
+#
+# This is the only invocation that keeps the work conversation clean. /explain
+# spawns a subagent inside that conversation, so the answer has to travel back
+# through the main agent and lands in its context permanently. Here nothing is
+# shared but a file on disk that the work session is already writing.
+#
+#   explainer                     open a session to ask in, in this directory
+#   explainer "ledger ne demek"   ask once, print the answer, exit
+#   explainer --sessions          which conversations were found here
+#   explainer --transcript PATH   explain a specific transcript
+#
+# Run it from the same directory the work session was opened in; that is how it
+# finds the conversation to read.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tail_py="$here/transcript-tail.py"
+layout_py="$here/explainer_layout.py"
+
+transcript=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sessions) exec "$tail_py" --list-sessions ;;
+    --transcript) transcript="${2:?--transcript needs a path}"; shift 2 ;;
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+# Resolved before claude starts: at this instant the newest transcript here is
+# still the work session, because the session about to be launched has not
+# written its own yet.
+if [ -z "$transcript" ]; then
+  transcript="$("$tail_py" --resolve-target)"
+fi
+
+session="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+python3 "$layout_py" remember-session "$session"
+
+# Read-only at the tool layer, not merely by instruction. The agent definition
+# says the same thing, but a prompt is a request and this is a refusal.
+tools=(
+  "Read" "Grep" "Glob" "WebSearch" "WebFetch"
+  "Bash(cat:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(sed:*)" "Bash(wc:*)"
+  "Bash(ls:*)" "Bash(find:*)" "Bash(grep:*)" "Bash(rg:*)" "Bash(file:*)"
+  "Bash(git log:*)" "Bash(git show:*)" "Bash(git diff:*)" "Bash(git blame:*)"
+  "Bash(git rev-parse:*)" "Bash(git worktree list:*)" "Bash(git status:*)"
+  # Both spellings: the agent is told to type "~/.claude/bin/...", and a pattern
+  # holding the expanded home path never matches an unexpanded tilde.
+  "Bash(~/.claude/bin/transcript-tail.py:*)"
+  "Bash(~/.claude/bin/explainer-glossary.py:*)"
+  "Bash($HOME/.claude/bin/transcript-tail.py:*)"
+  "Bash($HOME/.claude/bin/explainer-glossary.py:*)"
+  "Bash($tail_py:*)" "Bash($here/explainer-glossary.py:*)"
+)
+
+# Only user-level settings. The permissions this agent may use are given
+# outright below, so a project's settings.local.json adds nothing except its
+# warnings about its own wildcard rules, printed over the answer.
+settings=(--setting-sources user)
+
+export EXPLAINER_TRANSCRIPT="$transcript"
+
+if [ $# -gt 0 ]; then
+  export EXPLAINER_MODE=once
+  # </dev/null: -p reads stdin for piped input and otherwise spends three
+  # seconds waiting for it before warning and carrying on.
+  exec claude -p --agent explainer --session-id "$session" \
+    "${settings[@]}" --allowedTools "${tools[@]}" -- "$*" </dev/null
+fi
+
+export EXPLAINER_MODE=chat
+exec claude --agent explainer --session-id "$session" \
+  "${settings[@]}" --allowedTools "${tools[@]}"
