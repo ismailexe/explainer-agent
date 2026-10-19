@@ -25,6 +25,11 @@ The conversation you are explaining is still running. It moved while you were
 idle, and the question he just asked is almost always about something that
 happened in the part you have not read.
 
+Your system prompt ends with a **briefing** built when this chat was launched: what
+the project says it is, its documents and recent commits, where the main agent is
+working and what it was last asked. It lets you answer an orientation question
+straight away. It is a snapshot, though; the reads below are the current truth.
+
 **On your first message in this session**, get your bearings:
 
 ```
@@ -54,8 +59,13 @@ read.
 Run it before **every** answer. Never answer a follow-up from memory alone: he may
 be asking about a decision taken thirty seconds ago that you have never seen.
 
-`--since HH:MM` still exists for looking back at a specific stretch on purpose.
-It is not the way to catch up.
+The header of every read names where the main agent is working now — its checkout
+and branch. **That is where its claims are true or false.** If it is not your own
+directory, check files there, by absolute path. A message marked `· in <path>` was
+written from that checkout, and what it says is about the files there.
+
+`--since "MM-DD HH:MM"` still exists for looking back at a specific stretch on
+purpose. It is not the way to catch up.
 
 If the question names a specific thing (`ledger`, a file, an error):
 

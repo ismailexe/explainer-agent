@@ -9,6 +9,7 @@ threaded through the others.
 Nothing here reads a transcript or answers a question; it resolves paths.
 """
 
+import datetime as dt
 import json
 import os
 import re
@@ -72,32 +73,46 @@ def main_worktree(start):
     return None
 
 
-STATE_FILE = "explainer-sessions.txt"
+# This project's own agents. Their transcripts are never the conversation to
+# explain, and the explainer's chats are the ones `--resume` brings back.
+EXPLAINER_AGENTS = ("explainer", "explainer-researcher")
 
 
-def state_path(cwd=None):
-    """Where `explainer` records the session ids it has launched.
+def transcript_meta(path, lines=40):
+    """(agentSetting, entrypoint) from the head of a transcript.
 
-    Without this record the explainer would, on its second run, resolve the
-    first explainer session as the conversation to explain — it is the newest
-    transcript for this directory by then.
+    Measured on Claude Code 2.1.303: the agent-setting entry is the first or
+    second line, a fork keeps it, and a `claude -p` run is entrypoint "sdk-cli"
+    where an interactive chat is "cli".
     """
-    return PROJECTS / slug(cwd or os.getcwd()) / STATE_FILE
-
-
-def explainer_sessions(cwd=None):
-    path = state_path(cwd)
+    agent = entry_point = None
     try:
-        return {line.strip() for line in path.read_text().splitlines() if line.strip()}
+        with Path(path).open(encoding="utf-8", errors="replace") as fh:
+            for _ in range(lines):
+                line = fh.readline()
+                if not line:
+                    break
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                agent = agent or entry.get("agentSetting")
+                entry_point = entry_point or entry.get("entrypoint")
+                if agent and entry_point:
+                    break
     except OSError:
-        return set()
+        pass
+    return agent, entry_point
 
 
-def remember_explainer_session(session_id, cwd=None):
-    path = state_path(cwd)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(session_id + "\n")
+def is_explainer(path):
+    """Whether a transcript belongs to one of this project's agents.
+
+    The transcript says so itself, so no record has to be kept. The record this
+    replaced had to be written at launch, and a forked chat it never heard of
+    would have been taken for the conversation to explain.
+    """
+    return transcript_meta(path)[0] in EXPLAINER_AGENTS
 
 
 def worktree_root(start):
@@ -190,11 +205,9 @@ def target_transcript(nth=1):
     environment is its own — useless here. What is wanted is the newest session
     for this directory that is neither this process nor a previous explainer.
     """
-    skip = set(explainer_sessions())
     own = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if own:
-        skip.add(own)
-    pool = sessions_for_cwd(skip)
+    pool = [path for path in sessions_for_cwd({own} if own else frozenset())
+            if not is_explainer(path)]
     if not pool:
         sys.exit(
             "no other session found for this directory.\n"
@@ -204,6 +217,84 @@ def target_transcript(nth=1):
     if nth > len(pool):
         sys.exit(f"only {len(pool)} candidate session(s) for this directory")
     return pool[nth - 1]
+
+
+def locate_transcript(path):
+    """The transcript at `path`, or wherever Claude Code has moved it since.
+
+    `/cd` moves a session's transcript into the new directory's project storage.
+    The file name — the session id — survives the move, so that is what binds
+    the explainer to its conversation; the path is only where it was last seen.
+    """
+    path = Path(path)
+    if path.is_file():
+        return path
+    moved = sorted(PROJECTS.glob(f"*/{path.name}"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return moved[0] if moved else None
+
+
+def main_agent_cwd(path, chunk=262144):
+    """The directory the main agent's latest message was written from.
+
+    Every transcript entry records its cwd, so a session that moved to another
+    worktree says so on its own. Only the tail is read: the answer is the last
+    entry, and a long session's file runs to megabytes.
+    """
+    try:
+        with Path(path).open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - chunk))
+            blob = fh.read()
+    except OSError:
+        return None
+    for line in reversed(blob.decode("utf-8", errors="replace").splitlines()):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if (entry.get("type") in ("user", "assistant") and not entry.get("isSidechain")
+                and entry.get("cwd")):
+            return Path(entry["cwd"])
+    first = first_cwd(Path(path))
+    return Path(first) if first else None
+
+
+def work_dir():
+    """Where the main agent is working now — the files its claims are about.
+
+    Project knowledge (EXPLAINER.md, memory, glossary) follows it there. The
+    explainer's own bookkeeping does not: cursors and its session record stay
+    keyed to the directory it was opened in. Without a transcript to ask, or when
+    the directory is gone, this is simply the explainer's own directory.
+    """
+    forced = os.environ.get("EXPLAINER_TRANSCRIPT")
+    if forced:
+        path = locate_transcript(Path(forced).expanduser())
+        cwd = main_agent_cwd(path) if path else None
+        if cwd and cwd.is_dir():
+            return cwd
+    return Path(os.getcwd())
+
+
+def branch_of(directory):
+    """The branch checked out in `directory` right now, read from git.
+
+    Not from the transcript: its gitBranch field was measured reporting HEAD on
+    a checkout that was on main.
+    """
+    def git(*args):
+        try:
+            out = subprocess.run(["git", *args], cwd=directory,
+                                 capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return out.stdout.strip() if out.returncode == 0 else ""
+
+    name = git("rev-parse", "--abbrev-ref", "HEAD")
+    if name == "HEAD":
+        sha = git("rev-parse", "--short", "HEAD")
+        return f"detached at {sha}" if sha else None
+    return name or None
 
 
 def pick_file(nth):
@@ -219,8 +310,8 @@ def pick_file(nth):
     """
     forced = os.environ.get("EXPLAINER_TRANSCRIPT")
     if forced and nth == 1:
-        path = Path(forced).expanduser()
-        if path.is_file():
+        path = locate_transcript(Path(forced).expanduser())
+        if path:
             return path
 
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
@@ -273,12 +364,7 @@ def project_dir(cwd, repo):
 
 
 
-CURSOR_FILE = "explainer-cursors.txt"
-
-
-def cursor_path(cwd=None):
-    """Where each explainer chat records how far it has read."""
-    return PROJECTS / slug(cwd or os.getcwd()) / CURSOR_FILE
+CURSOR_DIR = "explainer-cursors"
 
 
 def cursor_key(transcript):
@@ -287,35 +373,42 @@ def cursor_key(transcript):
     Keyed by the explainer's own session id so two chats open on the same
     conversation do not consume each other's progress.
     """
-    return f"{os.environ.get('CLAUDE_CODE_SESSION_ID', 'anon')}:{Path(transcript).stem}"
+    return f"{os.environ.get('CLAUDE_CODE_SESSION_ID', 'anon')}--{Path(transcript).stem}"
+
+
+def cursor_path(transcript, cwd=None):
+    """The one file holding this pair's position.
+
+    A file per pair, not one shared file: two chats saving at the same moment
+    each read, edited and rewrote the shared file, and the later write erased
+    the other's update — a lost update. With nothing shared, nothing races.
+    """
+    return PROJECTS / slug(cwd or os.getcwd()) / CURSOR_DIR / f"{cursor_key(transcript)}.offset"
 
 
 def read_cursor(transcript, cwd=None):
     """Byte offset already consumed for this transcript, or None on a first read."""
-    key = cursor_key(transcript)
     try:
-        for line in cursor_path(cwd).read_text().splitlines():
-            saved_key, _, offset = line.partition(" ")
-            if saved_key == key and offset.strip().isdigit():
-                return int(offset)
+        text = cursor_path(transcript, cwd).read_text().strip()
     except OSError:
-        pass
-    return None
+        return None
+    return int(text) if text.isdigit() else None
 
 
 def write_cursor(transcript, offset, cwd=None):
-    """Record the offset, replacing any previous entry for the same pair."""
-    key = cursor_key(transcript)
-    path = cursor_path(cwd)
+    """Record the offset atomically: a reader sees the old value or the new, never half.
+
+    Written to a temporary file beside it and renamed over it, because a rename
+    within one directory replaces the file in a single step.
+    """
+    path = cursor_path(transcript, cwd)
     path.parent.mkdir(parents=True, exist_ok=True)
-    kept = []
+    temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        kept = [l for l in path.read_text().splitlines()
-                if l.strip() and not l.startswith(key + " ")]
-    except OSError:
-        pass
-    kept.append(f"{key} {offset}")
-    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        temp.write_text(f"{offset}\n", encoding="utf-8")
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 SKIPPED_FILE = ".skipped"
@@ -352,9 +445,132 @@ def answer_language():
 
 
 def resolve_project(cwd=None):
-    """This project's ~/.claude/projects entry, from a directory."""
-    here = Path(cwd or os.getcwd())
+    """This project's ~/.claude/projects entry — by default the project the main
+    agent is working in now, which is the one whose glossary a term belongs to."""
+    here = Path(cwd) if cwd else work_dir()
     return project_dir(here, main_worktree(here))
+
+
+def worktree_paths(start):
+    """Every checkout of the repository `start` is in, or [] outside git."""
+    try:
+        out = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=start,
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if out.returncode != 0:
+        return []
+    return [Path(line[len("worktree "):]) for line in out.stdout.splitlines()
+            if line.startswith("worktree ")]
+
+
+def explainer_chats(start=None):
+    """Explainer chats opened anywhere in this repository, newest first.
+
+    Chats only: a one-shot `explainer "question"` printed its answer and left
+    nothing to come back to, as Claude Code's own picker leaves `-p` runs out.
+    """
+    here = Path(start or os.getcwd())
+    roots = [str(p) for p in worktree_paths(here)] or [str(worktree_root(here) or here)]
+    chats = []
+    for path in candidate_files():
+        agent, entry_point = transcript_meta(path)
+        if agent != "explainer" or entry_point == "sdk-cli":
+            continue
+        cwd = (first_cwd(path) or "").rstrip("/")
+        if any(cwd == root or cwd.startswith(root + "/") for root in roots):
+            chats.append(path)
+    return chats
+
+
+def first_question(path, width=60):
+    """The first thing typed into a chat — its label, since these chats get no title."""
+    try:
+        with Path(path).open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if (entry.get("type") != "user" or entry.get("isMeta")
+                        or entry.get("isCompactSummary")):
+                    continue
+                content = (entry.get("message") or {}).get("content")
+                if isinstance(content, list):
+                    content = " ".join(b.get("text", "") for b in content
+                                       if isinstance(b, dict) and b.get("type") == "text")
+                text = " ".join(str(content or "").split())
+                if text and not text.startswith("<"):
+                    return text if len(text) <= width else text[: width - 1] + "…"
+    except OSError:
+        pass
+    return "(no question yet)"
+
+
+def sessions_held(ps_lines):
+    """Session ids that running processes have open, from `ps` argument lines.
+
+    A process holds the id after --session-id, and the id after --resume unless
+    it is forking that session into a new one. Read from the process table, so a
+    chat that crashed is closed at once — nothing on disk can go stale.
+    """
+    held = set()
+    for line in ps_lines:
+        args = line.split()
+        forking = "--fork-session" in args
+        for flag, value in zip(args, args[1:]):
+            if flag == "--session-id" or (flag in ("--resume", "-r") and not forking):
+                held.add(value)
+    return held
+
+
+def open_sessions():
+    try:
+        out = subprocess.run(["ps", "-axo", "args="], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return sessions_held(out.stdout.splitlines())
+
+
+def pick_chat(selector=None):
+    """Choose an earlier chat and how to bring it back: "resume <id>" or "fork <id>".
+
+    A closed chat is resumed — the same conversation, pointed at the current
+    work session. One still open in another window is forked instead, because
+    two processes resuming one session interleave into a single transcript. The
+    person never has to know the difference.
+    """
+    chats = explainer_chats()[:20]
+    if not chats:
+        sys.exit("no earlier explainer chat in this repository")
+    held = open_sessions()
+    rows = []
+    for i, path in enumerate(chats, 1):
+        state = "open" if path.stem in held else "closed"
+        stamp = dt.datetime.fromtimestamp(path.stat().st_mtime).strftime("%m-%d %H:%M")
+        where = Path(first_cwd(path) or "?").name
+        rows.append((path, state))
+        print(f"{i:>2}. {stamp}  {state:<6}  {where:<18.18}  {first_question(path)}",
+              file=sys.stderr)
+
+    if selector is None:
+        try:
+            with open("/dev/tty") as tty:
+                print("Which chat? [number, Enter to cancel]: ", end="", file=sys.stderr, flush=True)
+                selector = tty.readline().strip()
+        except OSError:
+            sys.exit("no terminal to ask on: pass a number, as in explainer --resume 2")
+    if not selector:
+        sys.exit(1)
+
+    if selector.isdigit() and 1 <= int(selector) <= len(rows):
+        chosen = [rows[int(selector) - 1]]
+    else:
+        chosen = [row for row in rows if row[0].stem.startswith(selector)]
+    if len(chosen) != 1:
+        sys.exit(f"no single chat matches {selector!r}")
+    path, state = chosen[0]
+    return f"{'fork' if state == 'open' else 'resume'} {path.stem}"
 
 
 def _cli():
@@ -365,18 +581,13 @@ def _cli():
     in bash, where it would drift the first time Claude Code moves a directory.
     """
     if len(sys.argv) < 2:
-        sys.exit("usage: explainer_layout.py <project-dir|glossary-dir|state-path|answer-language|remember-session UUID>")
+        sys.exit("usage: explainer_layout.py <project-dir|glossary-dir|answer-language|pick-chat [N|ID]>")
     what = sys.argv[1]
-    if what == "remember-session":
-        if len(sys.argv) != 3:
-            sys.exit("remember-session needs exactly one session id")
-        remember_explainer_session(sys.argv[2])
+    if what == "pick-chat":
+        print(pick_chat(sys.argv[2] if len(sys.argv) > 2 else None))
         return
     if what == "answer-language":
         print(answer_language())
-        return
-    if what == "state-path":
-        print(state_path())
         return
     project = resolve_project()
     if what == "project-dir":

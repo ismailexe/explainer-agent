@@ -6,10 +6,15 @@
 # through the main agent and lands in its context permanently. Here nothing is
 # shared but a file on disk that the work session is already writing.
 #
-#   explainer                     open a session to ask in, in this directory
-#   explainer "ledger ne demek"   ask once, print the answer, exit
-#   explainer --sessions          which conversations were found here
-#   explainer --transcript PATH   explain a specific transcript
+#   explainer                          open a session to ask in, in this directory
+#   explainer "what does ledger mean?" ask once, print the answer, exit
+#   explainer --sessions               which conversations were found here
+#   explainer --transcript PATH        explain a specific transcript
+#   explainer --resume [N]             bring back an earlier chat of this repository
+#
+# Quote a one-shot question. zsh reads ? and * as filename patterns (the
+# install script prints a noglob alias for that), an apostrophe needs double
+# quotes, and ! needs single ones; long questions are easier in the chat.
 #
 # Run it from the same directory the work session was opened in; that is how it
 # finds the conversation to read.
@@ -20,12 +25,31 @@ tail_py="$here/transcript-tail.py"
 layout_py="$here/explainer_layout.py"
 
 transcript=""
+resume_mode=""
+resume_id=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --sessions) exec "$tail_py" --list-sessions ;;
     --transcript) transcript="${2:?--transcript needs a path}"; shift 2 ;;
+    # Lists this repository's earlier chats and asks which one, unless a number or
+    # a session-id prefix follows. The answer comes back as "resume <id>", or as
+    # "fork <id>" when that chat is still open in another window.
+    --resume)
+      shift
+      selector=""
+      if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then selector="$1"; shift; fi
+      plan="$(python3 "$layout_py" pick-chat ${selector:+"$selector"})" || exit $?
+      resume_mode="${plan%% *}"
+      resume_id="${plan#* }"
+      ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     --) shift; break ;;
+    # An unknown option used to fall through as the question, so a mistyped or
+    # not-yet-existing flag silently cost a model call. A question that really
+    # starts with "-" goes after "--".
+    -*) echo "explainer: unknown option: $1" >&2
+        echo "Run 'explainer --help' for usage; put a question starting with '-' after '--'." >&2
+        exit 2 ;;
     *) break ;;
   esac
 done
@@ -38,7 +62,6 @@ if [ -z "$transcript" ]; then
 fi
 
 session="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-python3 "$layout_py" remember-session "$session"
 
 # Read-only at the tool layer, not merely by instruction. The agent definition
 # says the same thing, but a prompt is a request and this is a refusal.
@@ -68,7 +91,47 @@ if [ -n "${EXPLAINER_SETTINGS:-}" ]; then
   settings+=(--settings "$EXPLAINER_SETTINGS")
 fi
 
+# Every other worktree of this repository. The main agent can move into one in
+# the middle of a session, and its claims are then about the files there; read
+# access outside the working directory was measured to work for Read and grep
+# but not for cat. Worktrees added after launch still get Read and grep.
+here_real="$(pwd -P)"
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*)
+      wt="${line#worktree }"
+      [ "$wt" != "$here_real" ] && [ -d "$wt" ] && settings+=(--add-dir "$wt")
+      ;;
+  esac
+done < <(git worktree list --porcelain 2>/dev/null || true)
+
 export EXPLAINER_TRANSCRIPT="$transcript"
+
+# What the explainer knows before its first tool call: the project, its recent
+# history and where the work session stands, built here in code and appended to
+# the system prompt. Left in TMPDIR because claude reads it after this script is
+# gone; macOS clears it.
+briefing="$(mktemp "${TMPDIR:-/tmp}/explainer-briefing.XXXXXX")"
+"$tail_py" --briefing >"$briefing" 2>/dev/null || :
+settings+=(--append-system-prompt-file "$briefing")
+
+if [ -n "$resume_mode" ]; then
+  if [ $# -gt 0 ]; then
+    echo "explainer: --resume opens the chat; ask your question there" >&2
+    exit 2
+  fi
+  export EXPLAINER_MODE=chat
+  # A resumed or forked conversation reuses the system prompt recorded when it
+  # began, unless told to rebuild it (measured), and this launch can differ from
+  # that one.
+  if [ "$resume_mode" = fork ]; then
+    exec claude --agent explainer --resume "$resume_id" --fork-session \
+      --session-id "$session" --system-prompt-snapshot off \
+      "${settings[@]}" --allowedTools "${tools[@]}"
+  fi
+  exec claude --agent explainer --resume "$resume_id" --system-prompt-snapshot off \
+    "${settings[@]}" --allowedTools "${tools[@]}"
+fi
 
 if [ $# -gt 0 ]; then
   export EXPLAINER_MODE=once

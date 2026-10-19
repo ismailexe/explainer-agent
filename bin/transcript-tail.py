@@ -14,21 +14,24 @@ being asked about without loading raw JSON into its context.
   transcript-tail.py --nth 2              second-newest session for this cwd
   transcript-tail.py --sources            inventory of everything worth reading
   transcript-tail.py --new                only what has been said since you last looked
-  transcript-tail.py --since 14:05        only what was said after that clock time
+  transcript-tail.py --since 14:05        only what was said after that time today
+  transcript-tail.py --since "10-17 14:05"  the same, on another day
   transcript-tail.py --candidates         names worth researching that are not recorded yet
   transcript-tail.py --resolve-target     path of the session to explain, for `explainer`
   transcript-tail.py --list-sessions      every candidate session, newest first
 
 The explainer is a conversation someone comes back to over hours, so the useful
 question is usually not "what happened" but "what happened since I last looked".
-That is --since.
+That is --new.
 """
 
 import argparse
 import datetime as dt
+import functools
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -40,13 +43,18 @@ from explainer_layout import (  # noqa: E402
     read_cursor,
     answer_language,
     run_mode,
-    explainer_sessions,
+    branch_of,
+    first_cwd,
+    is_explainer,
     glossary_dir,
+    main_agent_cwd,
     main_worktree,
     pick_file,
     project_dir,
     sessions_for_cwd,
     target_transcript,
+    work_dir,
+    worktree_root,
     write_cursor,
 )
 
@@ -71,18 +79,48 @@ def clean(text):
 
 
 def clock(entry):
+    """MM-DD HH:MM, local time. The date is always there: sessions run for days, and
+    a bare 20:05 sent the reader to the wrong one."""
     stamp = entry.get("timestamp")
     if not stamp:
-        return "--:--"
+        return "--- --:--"
     try:
         moment = dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-        return moment.astimezone().strftime("%H:%M")
+        return moment.astimezone().strftime("%m-%d %H:%M")
     except ValueError:
-        return "--:--"
+        return "--- --:--"
 
 
-def render(entry, args):
-    """Turn one transcript entry into printable lines, or None if it carries nothing."""
+@functools.lru_cache(maxsize=64)
+def checkout(cwd):
+    """The checkout a directory belongs to, so a move into a subdirectory is not
+    mistaken for a move to another worktree."""
+    if not cwd:
+        return None
+    root = worktree_root(cwd) if Path(cwd).is_dir() else None
+    return str(root or Path(cwd))
+
+
+def location_line(path):
+    """Where the main agent is working now, for the top of every read."""
+    cwd = main_agent_cwd(path)
+    if not cwd:
+        return None
+    place = checkout(str(cwd))
+    branch = branch_of(place) if Path(place).is_dir() else None
+    line = f"# main agent is working in: {place}" + (f" · branch {branch}" if branch else "")
+    if place != checkout(os.getcwd()):
+        line += "\n# that is not your directory — check its claims against files there"
+    return line
+
+
+def render(entry, args, home=None):
+    """Turn one transcript entry into printable lines, or None if it carries nothing.
+
+    With `home`, the checkout the session started in, an entry written from any
+    other checkout is marked with where it was: what it says is about the files
+    there, not here.
+    """
     if entry.get("type") not in ("user", "assistant"):
         return None
     if entry.get("isSidechain") and not args.include_sidechain:
@@ -121,7 +159,17 @@ def render(entry, args):
 
     if not parts:
         return None
-    who = "USER" if entry.get("type") == "user" else "MAIN AGENT"
+    if entry.get("isCompactSummary"):
+        # Stored as a user entry, but Claude Code wrote it when the context ran
+        # out; shown as USER, it reads as something the person said.
+        who = "COMPACTION SUMMARY (written by Claude Code, not the user)"
+    elif entry.get("type") == "user":
+        who = "USER"
+    else:
+        who = "MAIN AGENT"
+    place = checkout(entry.get("cwd")) if home is not None else None
+    if place and place != home:
+        who += f" · in {place}"
     return f"[{clock(entry)}] {who}\n" + "\n".join(parts)
 
 
@@ -139,21 +187,31 @@ def moment(entry):
 def parse_since(text):
     """Accept the shapes a person actually types for "since when".
 
-    HH:MM is the common one, because that is what this script prints next to
-    every message; a full ISO timestamp works too.
+    MM-DD HH:MM is what this script prints next to every message, so it reads
+    back as-is; HH:MM alone means today, and a full ISO timestamp works too.
     """
     text = text.strip()
     try:
         return dt.datetime.fromisoformat(text).astimezone()
     except ValueError:
         pass
+    today = dt.date.today()
+    for shape in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            # The year is supplied before parsing so 02-29 is a valid date.
+            when = dt.datetime.strptime(f"{today.year}-{text}", shape)
+        except ValueError:
+            continue
+        if when.date() > today:          # 12-31 typed in January means last year
+            when = when.replace(year=today.year - 1)
+        return when.astimezone()
     for shape in ("%H:%M", "%H:%M:%S"):
         try:
             clock_only = dt.datetime.strptime(text, shape).time()
         except ValueError:
             continue
-        return dt.datetime.combine(dt.date.today(), clock_only).astimezone()
-    sys.exit(f'--since: cannot read "{text}" — use HH:MM or a full ISO timestamp')
+        return dt.datetime.combine(today, clock_only).astimezone()
+    sys.exit(f'--since: cannot read "{text}" — use HH:MM, "MM-DD HH:MM" or a full ISO timestamp')
 
 
 def load_since_cursor(path, args):
@@ -172,6 +230,7 @@ def load_since_cursor(path, args):
         write_cursor(path, path.stat().st_size)
         return messages, "first"
 
+    home = checkout(first_cwd(path))
     size = path.stat().st_size
     if size < start:                     # the file was replaced under us
         start = 0
@@ -188,7 +247,7 @@ def load_since_cursor(path, args):
             entry = json.loads(line)
         except ValueError:
             continue
-        block = render(entry, args)
+        block = render(entry, args, home)
         if block:
             out.append(block)
     write_cursor(path, consumed)
@@ -197,6 +256,7 @@ def load_since_cursor(path, args):
 
 def load(path, args):
     cutoff = parse_since(args.since) if getattr(args, "since", None) else None
+    home = checkout(first_cwd(path))
     out = []
     with path.open(encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -208,7 +268,7 @@ def load(path, args):
                 when = moment(entry)
                 if when is None or when < cutoff:
                     continue
-            block = render(entry, args)
+            block = render(entry, args, home)
             if block:
                 out.append(block)
     return out
@@ -357,7 +417,7 @@ def local_noise(cwd, repo):
 
 
 def print_candidates(args):
-    cwd = Path(os.getcwd())
+    cwd = work_dir()
     repo = main_worktree(cwd)
     project = project_dir(cwd, repo)
     known = recorded_terms(project) | local_noise(cwd, repo)
@@ -430,8 +490,117 @@ def show(label, path, limit=INLINE_LIMIT):
     return body
 
 
+# --------------------------------------------------------------------------
+# --briefing: what the explainer knows before its first tool call
+# --------------------------------------------------------------------------
+
+BRIEFING_LIMIT = 6000
+
+
+def text_of(entry):
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = " ".join(b.get("text", "") for b in content
+                           if isinstance(b, dict) and b.get("type") == "text")
+    return " ".join(clean(str(content or "")).split())
+
+
+def last_exchange(path, chunk=262144):
+    """The latest request the user typed and the latest thing the main agent said."""
+    user = agent = None
+    try:
+        with Path(path).open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - chunk))
+            lines = fh.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return None, None
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("isSidechain") or entry.get("isMeta") or entry.get("isCompactSummary"):
+            continue
+        text = text_of(entry)
+        if not text:
+            continue
+        if entry.get("type") == "user" and user is None:
+            user = text
+        elif entry.get("type") == "assistant" and agent is None:
+            agent = text
+        if user and agent:
+            break
+    return user, agent
+
+
+def git_lines(where, *args):
+    try:
+        out = subprocess.run(["git", *args], cwd=where, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return out.stdout.splitlines() if out.returncode == 0 else []
+
+
+def briefing():
+    """A short orientation for the explainer's system prompt, built at launch.
+
+    Everything in it is read from disk by code, so the explainer knows what the
+    project is and what the work session is doing before it runs a single tool.
+    It ages as the session moves; --new and --sources stay the current truth.
+    """
+    work = work_dir()
+    repo = main_worktree(work) or worktree_root(work) or work
+    parts = [f"# Briefing, built when this chat was launched ({dt.datetime.now():%m-%d %H:%M})",
+             "It ages as the session moves. What transcript-tail.py prints is current; "
+             "check claims there and in the files, not here."]
+
+    readme = next((repo / name for name in ("README.md", "readme.md", "README") if (repo / name).is_file()), None)
+    if readme:
+        body = readme.read_text(encoding="utf-8", errors="replace").strip()
+        parts += ["", "## What the project says it is", body[:1500] + (" …" if len(body) > 1500 else "")]
+
+    docs = sorted((repo / "docs").glob("*.md"))[:15] if (repo / "docs").is_dir() else []
+    if docs:
+        parts += ["", "## Its documents"]
+        for doc in docs:
+            heading = next((l.lstrip("# ").strip() for l in doc.read_text(encoding="utf-8", errors="replace").splitlines()
+                            if l.startswith("#")), "")
+            parts.append(f"- {doc.relative_to(repo)}" + (f" — {heading}" if heading else ""))
+
+    if (repo / ".claude" / "EXPLAINER.md").is_file():
+        parts += ["", "This project briefs you in .claude/EXPLAINER.md; transcript-tail.py --sources prints it."]
+
+    log = git_lines(work, "log", "--oneline", "-8")
+    if log:
+        parts += ["", "## Recent commits where the main agent works"] + log
+    trees = git_lines(work, "worktree", "list")
+    if len(trees) > 1:
+        parts += ["", "## Checkouts of this repository"] + trees
+
+    try:
+        transcript = pick_file(1)
+    except SystemExit:
+        transcript = None
+    if transcript:
+        parts += ["", "## The work session right now"]
+        where = location_line(transcript)
+        if where:
+            parts.append(where.splitlines()[0].lstrip("# "))
+        user, agent = last_exchange(transcript)
+        if user:
+            parts.append(f"last request from the user: {user[:400]}")
+        if agent:
+            parts.append(f"last thing the main agent said: {agent[:400]}")
+
+    text = "\n".join(parts)
+    return text if len(text) <= BRIEFING_LIMIT else text[:BRIEFING_LIMIT] + "\n… (cut)"
+
+
 def print_sources(args):
-    cwd = Path(os.getcwd())
+    # Project knowledge follows the main agent: when it works in another
+    # worktree, that checkout's EXPLAINER.md and its repository's memory apply.
+    cwd = work_dir()
     repo = main_worktree(cwd)
     project = project_dir(cwd, repo)
 
@@ -439,7 +608,12 @@ def print_sources(args):
     print("# read in this order; an earlier source outranks a later one on conflict\n")
 
     print("## 0 · where you are")
-    print(f"cwd        : {cwd}")
+    own = Path(os.getcwd())
+    if checkout(str(own)) != checkout(str(cwd)):
+        print(f"you        : {own}")
+        print(f"main agent : {cwd}   (everything below is resolved from here)")
+    branch = branch_of(cwd) if repo else None
+    print(f"cwd        : {cwd}" + (f"   (branch {branch})" if branch else ""))
     if repo and repo != cwd:
         print(f"repo       : {repo}   (cwd is a linked worktree of it)")
     elif repo:
@@ -557,8 +731,9 @@ def main():
     ap.add_argument("--thinking", action="store_true", help="include the assistant's thinking blocks")
     ap.add_argument("--include-sidechain", action="store_true", help="include subagent chatter")
     ap.add_argument("--max-chars", type=int, default=2500, help="per-message truncation")
-    ap.add_argument("--since", metavar="TIME", help="only messages after this clock time (HH:MM) or ISO timestamp")
+    ap.add_argument("--since", metavar="TIME", help='only messages after this time: HH:MM (today), "MM-DD HH:MM" or ISO timestamp')
     ap.add_argument("--sources", action="store_true", help="inventory of everything worth reading, instead of the transcript")
+    ap.add_argument("--briefing", action="store_true", help="the short orientation `explainer` puts in the system prompt at launch")
     ap.add_argument("--resolve-target", action="store_true", help="print the path of the session to explain, excluding this one")
     ap.add_argument("--list-sessions", action="store_true", help="every candidate session for this directory, newest first")
     ap.add_argument("--new", action="store_true", help="only what was appended since this chat last read; the position is remembered for you")
@@ -575,7 +750,6 @@ def main():
         return
 
     if args.list_sessions:
-        known = explainer_sessions()
         own = os.environ.get("CLAUDE_CODE_SESSION_ID")
         pool = sessions_for_cwd()
         if not pool:
@@ -583,7 +757,7 @@ def main():
         for i, path in enumerate(pool, 1):
             if path.stem == own:
                 tag = "this process"
-            elif path.stem in known:
+            elif is_explainer(path):
                 tag = "an explainer session"
             else:
                 tag = "candidate"
@@ -595,10 +769,17 @@ def main():
         print_sources(args)
         return
 
+    if args.briefing:
+        print(briefing())
+        return
+
     if args.new:
         path = Path(args.file).expanduser() if args.file else pick_file(args.nth)
         messages, kind = load_since_cursor(path, args)
         print(f"# transcript: {path}")
+        where = location_line(path)
+        if where:
+            print(where)
         if kind == "first":
             print(f"# first look in this chat — the last {args.turns} messages\n")
         elif not messages:
@@ -614,6 +795,9 @@ def main():
     path = Path(args.file).expanduser() if args.file else pick_file(args.nth)
     messages = load(path, args)
     print(f"# transcript: {path}")
+    where = location_line(path)
+    if where:
+        print(where)
     print(f"# {len(messages)} readable messages\n")
 
     if args.grep:

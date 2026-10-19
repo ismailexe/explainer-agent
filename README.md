@@ -65,10 +65,23 @@ Open a second terminal window, go to the same checkout the work session is in, a
 run:
 
 ```sh
-explainer                        # the chat
-explainer --sessions             # which conversations it can see from here
-explainer "ledger ne demek"      # one question, printed and gone, if you prefer
+explainer                            # the chat
+explainer --resume                   # bring back an earlier chat of this repository
+explainer --sessions                 # which conversations it can see from here
+explainer "what does ledger mean?"   # one question, printed and gone, if you prefer
 ```
+
+`--resume` lists the chats opened anywhere in this repository, in any of its
+worktrees, and asks which one (`--resume 2` picks directly). The chat comes back
+with its history, pointed at the work session you are in now. If that chat is still
+open in another window, you get a copy of it instead, because two windows writing
+one conversation would interleave.
+
+Quote a one-shot question: zsh reads `?` and `*` as filename patterns and fails with
+"no matches found" before `explainer` runs. `alias explainer='noglob explainer'` in
+`~/.zshrc` removes the need for `?`. An apostrophe still needs double quotes, and in
+an interactive shell `!` needs single quotes, because it triggers history expansion
+even inside double quotes. Long questions are easier in the chat.
 
 `/explain`, typed in the working conversation, hands you that command with the
 right directory filled in. It deliberately does not open the window for you: a

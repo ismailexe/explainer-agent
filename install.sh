@@ -45,12 +45,23 @@ chmod +x "$repo/bin/explainer" "$repo/bin/explainer-research" \
 echo
 echo "Installed. Verify with: ~/.claude/bin/transcript-tail.py --sources"
 case ":$PATH:" in
-  *":$HOME/.claude/bin:"*) echo "Ask a question with: explainer \"<soru>\"" ;;
+  *":$HOME/.claude/bin:"*) echo "Ask a question with: explainer \"<question>\"" ;;
   *) echo
      echo "~/.claude/bin is not on your PATH, so \`explainer\` will not resolve as a"
      echo "command. Add this to your shell profile:"
      echo
      echo "  export PATH=\"\$HOME/.claude/bin:\$PATH\""
      echo
-     echo "Until then, call it by path: ~/.claude/bin/explainer \"<soru>\"" ;;
+     echo "Until then, call it by path: ~/.claude/bin/explainer \"<question>\"" ;;
+esac
+
+# zsh expands ? and * before explainer ever runs, so an unquoted question that
+# ends in "?" fails with "no matches found". The profile stays the user's to
+# edit; this only prints the line.
+case "${SHELL##*/}" in
+  zsh) echo
+       echo "zsh reads ? and * in a one-shot question as filename patterns. To ask"
+       echo "without quotes, add this line to ~/.zshrc:"
+       echo
+       echo "  alias explainer='noglob explainer'" ;;
 esac
