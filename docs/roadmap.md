@@ -108,7 +108,11 @@ a model call.
 Questions naturally end in `?`. zsh treats it as a glob and fails with "no matches
 found" before the explainer runs.
 
-**Plan.** For zsh, `install.sh` adds `alias explainer='noglob explainer'`.
+**Done.** `install.sh` prints `alias explainer='noglob explainer'` for zsh users and
+leaves the profile to them, as it already does for `PATH`. The README and
+`explainer --help` say what still needs quotes: an apostrophe needs double quotes,
+and `!` needs single ones, because it triggers history expansion even inside double
+quotes.
 
 ### G · False premises
 Asked why the main agent had set a Redis TTL that was never added, the explainer said in
@@ -214,7 +218,17 @@ prompt. The eval checks length in code.
 0. First commit of the current state.
 1. This roadmap.
 2. Eval suite and baseline.
-3. Code fixes: E, F, D, L, M, then C, B, A.
+3. Code fixes: E, F, D, L, M, C, B, A (all done 2026-10-19).
+   A's eval case — "without reading anything, what is this project and what was
+   the main agent doing?" — passed 3 of 3 runs with the briefing and 0 of 3 with
+   it switched off.
+   B tells open from closed through the process table rather than a `flock`
+   lock: macOS has no `flock` command, and the process table leaves nothing on
+   disk to go stale after a crash.
+   C's eval case — the main agent adds retry jitter from a second worktree without
+   naming it — passed 3 of 3 runs after the fix and 0 of 3 before it. Before the
+   fix, the explainer checked its own checkout, found no jitter, and reported that
+   the main agent had claimed work it never did.
 4. Answer contract: G, H, I, J, K and length, each measured against the baseline.
 5. Forgotten context.
 6. Publication:
