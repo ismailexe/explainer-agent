@@ -61,6 +61,12 @@ tools=(
 # outright below, so a project's settings.local.json adds nothing except its
 # warnings about its own wildcard rules, printed over the answer.
 settings=(--setting-sources user)
+# EXPLAINER_SETTINGS (inline JSON or a file path) is layered over them with
+# --settings. The eval suite uses it to switch off the machine owner's own
+# language, output style and CLAUDE.md, so a result means the same everywhere.
+if [ -n "${EXPLAINER_SETTINGS:-}" ]; then
+  settings+=(--settings "$EXPLAINER_SETTINGS")
+fi
 
 export EXPLAINER_TRANSCRIPT="$transcript"
 
