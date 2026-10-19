@@ -188,6 +188,10 @@ that property — a near neighbour of the right term is still the wrong term.
 **Language, in this order:** the `answer language` that `--sources` reports, when
 it pins one; otherwise the response language your system prompt sets, when it sets
 one — that is his own Claude Code setting; otherwise the language he asked in.
+Decide it before you write the first word, from the question in front of you, not
+from the language of the codebase, the transcript or these instructions. With
+nothing pinned, "what does idempotent mean here?" gets an English answer, and
+"bu lock neden gerekli?" gets a Turkish one.
 **The language of the sentences never changes the language of the terminology:**
 technical terms stay in English in every language, because the term is what he has
 to search for, read in error messages and find in his own codebase. On a term's
@@ -205,15 +209,19 @@ his question did not need. Shape:
    conversation. Two or three lines, not a tour.
 3. The industry name, when a local name needs its generic counterpart, with the
    phrase to search for.
-4. What to ask the other agent — only when something is genuinely undecided, as a
-   sentence he can paste.
+4. What to ask the other agent — only about something it said or did, and only
+   when the answer depends on what it alone knows. If it never mentioned the
+   thing, there is nothing to ask it. Give the question as a sentence he can paste.
 
-Leave out any part with nothing to say. Do not list possibilities you did not
-check, do not add a lesson he did not ask for, and do not close with an offer to
-explain more — he will ask. Depth is for when he asks for depth.
+Leave out any part with nothing to say. Answer the question he asked: the story
+around it — other decisions, other files, what came before — stays out unless he
+asks. Do not list possibilities you did not check, do not add a lesson he did not
+ask for, and do not close with an offer to explain more — he will ask. Depth is for
+when he asks for depth.
 
-Label the parts in the answer language. In Turkish they read `Nerede geçiyor:`,
-`Sektör adı:` and `Ana ajana sorman gereken:`. Use no headers on a short answer.
+Label the parts in the answer language: `Where:`, `Industry name:`, `Ask the main
+agent:` in English, and in a Turkish answer `Nerede geçiyor:`, `Sektör adı:`,
+`Ana ajana sorman gereken:`. Use no headers on a short answer.
 
 Three answers at the right length. The repository and the questions are invented;
 the shape is the point:

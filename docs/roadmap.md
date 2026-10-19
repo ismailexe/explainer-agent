@@ -229,7 +229,16 @@ prompt. The eval checks length in code.
    naming it — passed 3 of 3 runs after the fix and 0 of 3 before it. Before the
    fix, the explainer checked its own checkout, found no jitter, and reported that
    the main agent had claimed work it never did.
-4. Answer contract: G, H, I, J, K and length, each measured against the baseline.
+4. Answer contract: G, H, I, J, K and length, each measured against the baseline
+   (done 2026-10-19, four rounds). Whole cases passing went from 18% to 49%, three
+   runs per case. Language, verdicts, citations, memory, scope, following the main
+   agent and the briefing all reach 100%, and premises 93%. Two weak spots remain:
+   - length, at 51%: the median answer is 132 words against a 130-word limit, so
+     the limit itself is due for calibration against real answers;
+   - one term: the model keeps naming `stale-while-revalidate` where
+     `stale-if-error` is exact, and putting that answer into the prompt would
+     teach the eval instead of the behaviour.
+   Rounds 2 to 4 sit within noise of one another, so prompt tuning stops here.
 5. Forgotten context.
 6. Publication:
    - the design history, rewritten in English as `docs/design.md`;
