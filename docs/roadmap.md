@@ -177,6 +177,16 @@ three days.
 **Plan.** Print the date whenever the transcript spans more than one day, and accept a
 date in `--since`.
 
+### N · Memory notes could not be read
+Found while reading eval answers: "I couldn't read `memory/routes-in-repo.md`
+because the sandbox blocked it." Memory lives under Claude Code's projects tree,
+outside every checkout, and `cat` is refused there. The agent's instructions send
+it to `cat` those notes, so in real use it could never read them.
+
+**Done.** The launcher hands the project's entry in that tree over with
+`--add-dir`. In the case that showed it, three runs out of three now read without
+being blocked, and two of them quote the note.
+
 ### Length
 Answers ran 18 to 25 lines where about 12 is the target. The eval measures words
 rather than lines: a terminal wraps a long paragraph, so a line count lets padding
@@ -234,12 +244,24 @@ prompt. The eval checks length in code.
    runs per case. Language, verdicts, citations, memory, scope, following the main
    agent and the briefing all reach 100%, and premises 93%. Two weak spots remain:
    - length, at 51%: the median answer is 132 words against a 130-word limit, so
-     the limit itself is due for calibration against real answers;
+     the limit itself is due for calibration against real answers. Calibrated
+     the same day: the maintainer read answers of 110 to 179 words and judged all
+     of them acceptable, so the eval allows 180 (120 for a plain definition)
+     while the agent still aims at 120. Re-scored with that limit, whole cases go
+     from 51% at baseline to 77% after round 4, and length from 59% to 86%;
    - one term: the model keeps naming `stale-while-revalidate` where
      `stale-if-error` is exact, and putting that answer into the prompt would
      teach the eval instead of the behaviour.
    Rounds 2 to 4 sit within noise of one another, so prompt tuning stops here.
-5. Forgotten context.
+5. Forgotten context (done 2026-10-19). `transcript-tail.py --forgotten` prints
+   each compaction summary beside the user's own words from before it; the agent
+   reports only what the summary dropped and still matters now, checks it against
+   the code, and writes a note to paste into the main agent's window. In the eval
+   case, a legal rule dropped by the summary and broken afterwards, it found the
+   rule 3 of 3 times with or without the feature, but gave a note that stands on
+   its own 3 of 3 times with it and 1 of 3 without, and stayed on the one item
+   that mattered. The fixture is too short to show the main gain: a real
+   13,467-line session comes down to 14 KB. A long fixture would measure that.
 6. Publication:
    - the design history, rewritten in English as `docs/design.md`;
    - remove personal names and paths;
