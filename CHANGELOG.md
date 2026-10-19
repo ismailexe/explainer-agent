@@ -6,6 +6,8 @@ no compatibility: commands, options and file layouts may change in any release.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-19
+
 The first public version.
 
 ### Added
@@ -28,3 +30,6 @@ The first public version.
   language of the question.
 - Support for `CLAUDE_CONFIG_DIR`.
 - An answer-quality eval suite under `evals/`.
+
+[Unreleased]: https://github.com/ismailexe/explainer-agent/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ismailexe/explainer-agent/releases/tag/v0.1.0

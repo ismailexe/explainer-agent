@@ -16,7 +16,8 @@ explainer      # in a second terminal, inside the checkout you are working in
 ```
 
 Requires Claude Code and Python 3. `install.sh` symlinks the files into `~/.claude/`
-and prints anything left to add to your shell profile.
+and prints anything left to add to your shell profile. Used day to day on macOS; on Linux
+the tests pass, but it has not yet been used there.
 
 ## What to ask it
 
