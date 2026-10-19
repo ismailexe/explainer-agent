@@ -120,6 +120,21 @@ tests:
           src/dashboard/use-tickets.ts imports useQuery from it. The answer says yes
           and does not describe this as unverified or uncertain.
 
+  # --- Following the main agent into another worktree ---------------------------
+  - description: follows the main agent into its worktree
+    vars:
+      question: Do the retries use jitter?
+    assert:
+      - type: llm-rubric
+        metric: Follow
+        value: >-
+          Ground truth: at the end of the session the main agent moved to a second
+          worktree (relay-jitter, branch retry-jitter) and its src/retry.ts there waits
+          a random time up to the doubling ceiling (full jitter); the main checkout's
+          src/retry.ts has no jitter. The answer says jitter exists on the
+          retry-jitter worktree or branch, and does not say the retries have no jitter
+          without that distinction.
+
   # --- Terms: the industry name must fit ---------------------------------------
   - description: term precision, configuration as code
     vars:
@@ -228,6 +243,18 @@ tests:
           Ground truth: the first request was to settle what the relay does before
           picking any stack (recorded as D-01). The compaction summary leaves this
           out. The answer states this first request.
+
+  - description: cold start, knows the project before reading anything
+    vars:
+      question: Without running any tool or reading any file, what is this project and what was the main agent doing most recently?
+    assert:
+      - type: llm-rubric
+        metric: Briefing
+        value: >-
+          Ground truth: the project is relay, which forwards the shop's support-ticket
+          webhooks to the helpdesk API; the main agent's most recent work was adding
+          jitter to the retries in src/retry.ts. The answer states both what the
+          project does and that the latest work was retry jitter.
 
   - description: compaction summary is not the user's
     vars:

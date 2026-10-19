@@ -3,11 +3,13 @@
 Written as a readable list and rendered to JSONL per case, because the transcript
 has to name the case's own checkout in every entry's `cwd`.
 
-The session spans two days and was compacted once. Three things are planted:
+The session spans two days and was compacted once. Four things are planted:
 - the request behind D-01 appears only before the compaction, and the summary
   leaves it out;
 - the main agent claims a helpdesk timeout that the code does not have;
-- nothing about Redis or caching is ever said.
+- nothing about Redis or caching is ever said;
+- at the end the main agent moves to a second worktree and adds retry jitter
+  there, so the main checkout has none.
 """
 
 import json
@@ -67,6 +69,19 @@ TURNS_AFTER = [
      ("Write", {"file_path": "src/retry.ts"})),
 ]
 
+WORKTREE_BRANCH = "retry-jitter"
+
+# Written from the second worktree, whose path is only known per case. Neither
+# message names the worktree or the branch: the move shows only in each entry's
+# cwd, as it does when a session changes directory without saying so.
+TURNS_IN_WORKTREE = [
+    ("2026-10-18T07:20:00Z", "user", "Add jitter to the retries.", None),
+    ("2026-10-18T07:26:00Z", "assistant",
+     "Done: src/retry.ts now uses full jitter, each wait random up to the doubling "
+     "ceiling (D-07).",
+     ("Edit", {"file_path": "src/retry.ts"})),
+]
+
 
 def _entry(stamp, role, content, cwd, parent, **extra):
     entry = {
@@ -95,7 +110,7 @@ def _content(role, text, tool):
     return blocks
 
 
-def entries(cwd):
+def entries(cwd, worktree_cwd=None):
     out, parent = [], None
     for stamp, role, text, tool in TURNS:
         entry = _entry(stamp, role, _content(role, text, tool), cwd, parent)
@@ -109,10 +124,15 @@ def entries(cwd):
         entry = _entry(stamp, role, _content(role, text, tool), cwd, parent)
         out.append(entry)
         parent = entry["uuid"]
+    if worktree_cwd:
+        for stamp, role, text, tool in TURNS_IN_WORKTREE:
+            entry = _entry(stamp, role, _content(role, text, tool), worktree_cwd, parent)
+            out.append(entry)
+            parent = entry["uuid"]
     return out
 
 
-def write(path, cwd):
+def write(path, cwd, worktree_cwd=None):
     with open(path, "w", encoding="utf-8") as fh:
-        for entry in entries(cwd):
+        for entry in entries(cwd, worktree_cwd):
             fh.write(json.dumps(entry) + "\n")

@@ -6,6 +6,7 @@ the suite needs no API key.
 """
 
 import json
+import os
 import subprocess
 
 SYSTEM = (
@@ -21,6 +22,9 @@ def call_api(prompt, options, context):
          "--no-session-persistence", "--settings", json.dumps({"language": ""}),
          "--system-prompt", SYSTEM, prompt],
         capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
+        # Safe mode already skips hooks; dropping an IDE's variables keeps a
+        # judgment from reaching that IDE by any other route.
+        env={k: v for k, v in os.environ.items() if not k.startswith("ORCA_")},
     )
     if run.returncode != 0:
         return {"error": f"judge exited {run.returncode}: {run.stderr.strip()[-300:]}"}

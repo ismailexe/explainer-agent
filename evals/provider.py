@@ -24,13 +24,26 @@ from explainer_layout import slug  # noqa: E402
 import session  # noqa: E402
 
 # Layered over the machine owner's user settings, so their own language, output
-# style, CLAUDE.md and auto memory cannot decide a result.
+# style, CLAUDE.md, auto memory and hooks cannot decide a result. Hooks matter
+# twice: they can change what the agent does, and an IDE's status hooks would
+# report every case as a finished session of whatever workspace launched the run.
 NEUTRAL_SETTINGS = {
     "language": "",
     "outputStyle": "default",
     "claudeMdExcludes": [str(Path.home() / ".claude" / "CLAUDE.md")],
     "autoMemoryEnabled": False,
+    "disableAllHooks": True,
 }
+
+# Variables an IDE sets so the sessions it launches can report back to it. A
+# case inherits them from whoever ran the suite, and must not.
+IDE_PREFIXES = ("ORCA_",)
+
+
+def clean_env(extra):
+    env = {k: v for k, v in os.environ.items() if not k.startswith(IDE_PREFIXES)}
+    env.pop("EXPLAINER_LANG", None)
+    return {**env, **extra}
 
 FIXED_DATE = "2026-10-18T07:10:00Z"
 
@@ -40,16 +53,27 @@ def build_world():
     repo = world / "repo"
     shutil.copytree(FIXTURE / "repo", repo)
     git_env = {**os.environ, "GIT_AUTHOR_DATE": FIXED_DATE, "GIT_COMMITTER_DATE": FIXED_DATE}
-    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
-                 ["-c", "user.name=fixture", "-c", "user.email=fixture@example.com",
-                  "commit", "-q", "-m", "relay: forward shop webhooks to the helpdesk"]):
-        subprocess.run(["git", *args], cwd=repo, env=git_env, check=True, capture_output=True)
+    identity = ["-c", "user.name=fixture", "-c", "user.email=fixture@example.com"]
+
+    def git(where, *args):
+        subprocess.run(["git", *args], cwd=where, env=git_env, check=True, capture_output=True)
+
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", "-A")
+    git(repo, *identity, "commit", "-q", "-m", "relay: forward shop webhooks to the helpdesk")
+
+    # The second worktree the main agent moves into at the end of the session.
+    worktree = world / "relay-jitter"
+    git(repo, "worktree", "add", "-q", "-b", session.WORKTREE_BRANCH, str(worktree))
+    shutil.copytree(FIXTURE / "worktree", worktree, dirs_exist_ok=True)
+    git(worktree, "add", "-A")
+    git(worktree, *identity, "commit", "-q", "-m", "retry: full jitter (D-07)")
 
     projects = world / "projects"
     entry = projects / slug(repo)
     shutil.copytree(FIXTURE / "memory", entry / "memory")
     transcript = entry / f"{session.SESSION_ID}.jsonl"
-    session.write(transcript, str(repo))
+    session.write(transcript, str(repo), str(worktree))
     return world, repo, projects, transcript
 
 
@@ -57,13 +81,12 @@ def call_api(prompt, options, context):
     world, repo, projects, transcript = build_world()
     # A case can play a user who has set a Claude Code `language`.
     language = (context.get("vars") or {}).get("settings_language") or ""
-    env = {
-        **os.environ,
+    env = clean_env({
+        "TMPDIR": str(world),       # the launcher's briefing file goes with the world
         "EXPLAINER_PROJECTS_DIR": str(projects),
         "EXPLAINER_SETTINGS": json.dumps({**NEUTRAL_SETTINGS, "language": language}),
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
-    }
-    env.pop("EXPLAINER_LANG", None)
+    })
     try:
         run = subprocess.run(
             [str(REPO / "bin" / "explainer"), "--transcript", str(transcript), prompt],
