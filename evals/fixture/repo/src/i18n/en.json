@@ -1,0 +1,6 @@
+{
+  "loading": "Loading tickets…",
+  "loadFailed": "Couldn't load tickets.",
+  "refreshFailed": "Couldn't refresh tickets — showing the list loaded earlier.",
+  "retry": "Try again"
+}

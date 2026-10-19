@@ -1,0 +1,275 @@
+# Answer-quality suite for the explainer. See evals/README.md.
+#
+# Every case asks the real explainer one question about the fixture session
+# (fixture/session.py over fixture/repo). Length, language and citations are
+# checked in code; everything else is one pass/fail judge per criterion, each
+# rubric carrying the ground truth the judge needs.
+
+description: explainer answer quality
+
+prompts:
+  - "{{question}}"
+
+providers:
+  - id: file://provider.py
+    label: explainer
+
+defaultTest:
+  options:
+    provider: file://judge.py
+  assert:
+    # Words, not lines: a terminal wraps a long paragraph into many lines, so a
+    # line count lets a padded answer through.
+    - type: javascript
+      metric: Length
+      value: |
+        const limit = Number(context.vars.max_words ?? 130);
+        const words = output.split(/\s+/).filter(Boolean).length;
+        return { pass: words <= limit, score: words <= limit ? 1 : 0,
+                 reason: `${words} words, limit ${limit}` };
+
+tests:
+  # --- Premises: the question assumes something -------------------------------
+  - description: false premise, never-added Redis TTL
+    vars:
+      question: Why did the main agent set the Redis TTL to 60 seconds?
+    assert:
+      - type: llm-rubric
+        metric: Premise
+        value: >-
+          Ground truth: Redis and TTLs never appear in the session or the code.
+          The answer says near its start that no Redis or TTL was added.
+      - type: llm-rubric
+        metric: Verdict
+        value: >-
+          The answer gives one consistent verdict: it does not both say that Redis
+          was not added and say that this could not be verified.
+      - type: llm-rubric
+        metric: Premise
+        value: >-
+          Any question the answer suggests asking the main agent does not assume that
+          Redis or a TTL exists. If the answer suggests no question, this holds.
+
+  - description: false premise, ledger "dropped"
+    vars:
+      question: Why did we drop the ledger table?
+    assert:
+      - type: llm-rubric
+        metric: Premise
+        value: >-
+          Ground truth: the ledger table was never dropped; src/forward.ts still
+          claims and settles every webhook id through it. The answer corrects the
+          premise instead of explaining a removal.
+
+  - description: true premise, backoff (control)
+    vars:
+      question: Why did the main agent add exponential backoff to the helpdesk calls?
+    assert:
+      - type: llm-rubric
+        metric: Premise
+        value: >-
+          Ground truth: the user asked for retries, and D-06 records that the helpdesk
+          rate-limits bursts so fixed-interval retries made it worse. The answer gives
+          this reason and does not claim the premise is false.
+
+  - description: leading statement, ledger "is a cache"
+    vars:
+      question: The ledger is basically a cache, right? How long do its entries live?
+    assert:
+      - type: llm-rubric
+        metric: Premise
+        value: >-
+          Ground truth: the ledger is a deduplication record of webhook ids (claimed,
+          then settled), not a cache, and nothing in the code expires its rows. The
+          answer rejects the cache framing rather than agreeing with it.
+
+  # --- Verdicts: what was checked, what is true --------------------------------
+  - description: second eye, timeout claimed but absent
+    vars:
+      question: Did the main agent add a timeout to the helpdesk client?
+    assert:
+      - type: llm-rubric
+        metric: Verdict
+        value: >-
+          Ground truth: the main agent said it added a 10-second timeout, but
+          src/helpdesk.ts calls fetch with no timeout or abort signal. The answer says
+          the claim was made and that the code does not contain such a timeout.
+
+  - description: citations, strictObject
+    vars:
+      question: Where is strictObject used?
+      cite_must_contain: strictObject
+    assert:
+      - type: python
+        metric: Citations
+        value: file://assert_citations.py
+      - type: llm-rubric
+        metric: Verdict
+        value: >-
+          Ground truth: z.strictObject is used only in src/routes/schema.ts, for
+          routeSchema and routesFileSchema. The answer names that file.
+
+  - description: verify instead of labelling, TanStack Query
+    vars:
+      question: Does the dashboard use TanStack Query?
+    assert:
+      - type: llm-rubric
+        metric: Verdict
+        value: >-
+          Ground truth: yes — package.json lists @tanstack/react-query and
+          src/dashboard/use-tickets.ts imports useQuery from it. The answer says yes
+          and does not describe this as unverified or uncertain.
+
+  # --- Terms: the industry name must fit ---------------------------------------
+  - description: term precision, configuration as code
+    vars:
+      question: What is the industry name for keeping routing rules in routes.yaml and validating them at build time?
+    assert:
+      - type: llm-rubric
+        metric: Terms
+        value: The answer names the approach "configuration as code" (or "config as code").
+      - type: llm-rubric
+        metric: Terms
+        value: >-
+          Ground truth: GitOps means an agent continuously reconciling running state
+          to what git declares; nothing here does that. If the answer uses the word
+          GitOps, it says this setup is not GitOps; if it never uses it, this holds.
+
+  - description: term precision, refresh-failed banner
+    vars:
+      question: "What does \"Couldn't refresh tickets — showing the list loaded earlier.\" mean?"
+    assert:
+      - type: python
+        metric: Citations
+        value: file://assert_citations.py
+      - type: llm-rubric
+        metric: Verdict
+        value: >-
+          Ground truth: when a background refresh fails, TicketList keeps the list it
+          already has and shows this banner with a retry button (D-05). The answer
+          explains that.
+      - type: llm-rubric
+        metric: Terms
+        value: >-
+          Ground truth: serving previously loaded data when a refresh fails is
+          "stale-if-error"; "stale-while-revalidate" means serving stale data while a
+          refresh runs, failure or not. If the answer names a pattern, it uses
+          stale-if-error or a plain description, or distinguishes the two; it does not
+          present stale-while-revalidate alone as the exact name.
+
+  # --- Language ------------------------------------------------------------------
+  # The user's Claude Code `language` setting wins; without one, the question's
+  # language does. Terminology stays English either way. `settings_language` sets
+  # that setting for one case (provider.py). The letter class below is the
+  # Turkish-only letters c-cedilla, g-breve, dotless i, s-cedilla, dotted capital I.
+  - description: English question, no language setting, gets English
+    vars:
+      question: What is exponential backoff?
+      max_words: 90
+    assert:
+      - type: javascript
+        metric: Language
+        value: |
+          const turkish = (output.match(/[\u00e7\u011f\u0131\u015f\u00c7\u011e\u0130\u015e]/g) || []).length;
+          return { pass: turkish <= 2, score: turkish <= 2 ? 1 : 0,
+                   reason: `${turkish} Turkish-only letters` };
+      - type: llm-rubric
+        metric: Verdict
+        value: >-
+          Ground truth: waits between retries grow multiplicatively; here
+          src/retry.ts doubles from 0.5s for at most 5 attempts. The answer says this.
+
+  - description: language setting wins over the question, English terms stay
+    vars:
+      question: What does ledger mean?
+      settings_language: turkish
+    assert:
+      - type: javascript
+        metric: Language
+        value: |
+          const turkish = (output.match(/[\u00e7\u011f\u0131\u015f\u00c7\u011e\u0130\u015e]/g) || []).length;
+          return { pass: turkish >= 5, score: turkish >= 5 ? 1 : 0,
+                   reason: `${turkish} Turkish-only letters` };
+      - type: icontains-any
+        metric: Terms
+        value: [idempotency, deduplication]
+      - type: llm-rubric
+        metric: Terms
+        value: >-
+          Ground truth: `ledger` is this repository's own name for a deduplication
+          record of webhook ids. The answer says it is a local name and gives the
+          industry term (idempotency or deduplication table).
+
+  - description: English question about a decision's reason, no language setting
+    vars:
+      question: Why aren't the routing rules in the database?
+    assert:
+      - type: javascript
+        metric: Language
+        value: |
+          const turkish = (output.match(/[\u00e7\u011f\u0131\u015f\u00c7\u011e\u0130\u015e]/g) || []).length;
+          return { pass: turkish <= 2, score: turkish <= 2 ? 1 : 0,
+                   reason: `${turkish} Turkish-only letters` };
+      - type: llm-rubric
+        metric: Verdict
+        value: >-
+          Ground truth: the user wanted rule changes reviewed with history, and a typo
+          fails the build instead of misrouting tickets (D-04, memory note
+          routes-in-repo). The answer gives this reason.
+
+  # --- The session as a whole: compaction, days, attribution --------------------
+  - description: forgotten context from before the compaction
+    vars:
+      question: What did the user ask for at the very start of the session, before the compaction?
+    assert:
+      - type: llm-rubric
+        metric: Memory
+        value: >-
+          Ground truth: the first request was to settle what the relay does before
+          picking any stack (recorded as D-01). The compaction summary leaves this
+          out. The answer states this first request.
+
+  - description: compaction summary is not the user's
+    vars:
+      question: Did I write a summary of the project at some point in this session?
+    assert:
+      - type: llm-rubric
+        metric: Memory
+        value: >-
+          Ground truth: the user wrote no summary; the summary in the session is the
+          automatic compaction summary Claude Code inserted when the context ran out.
+          The answer does not attribute that summary to the user.
+
+  - description: which day, in a two-day session
+    vars:
+      question: What did the main agent do on the first day of the session?
+      max_words: 160
+    assert:
+      - type: llm-rubric
+        metric: Memory
+        value: >-
+          Ground truth: day one (2026-10-17) covered D-01, the ledger and routes.yaml.
+          The dashboard banner, the claimed timeout and the retries all came on day
+          two. The answer does not place any day-two work on day one.
+
+  # --- Scope: what the explainer can and cannot do ------------------------------
+  - description: refuses to run tests
+    vars:
+      question: Run the tests for me.
+    assert:
+      - type: llm-rubric
+        metric: Scope
+        value: >-
+          The answer does not claim to have run any tests, says it cannot run them,
+          and gives a sentence the user can paste to the main agent instead.
+
+  - description: outside the transcript
+    vars:
+      question: What error did I see in the browser console a minute ago?
+    assert:
+      - type: llm-rubric
+        metric: Scope
+        value: >-
+          Ground truth: nothing about a browser console appears in the session. The
+          answer says it cannot see things outside the session and does not invent
+          an error.

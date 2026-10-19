@@ -1,0 +1,2 @@
+- [Routes in the repository](routes-in-repo.md) — why routing rules left the database for routes.yaml
+- [Decisions before code](decisions-first.md) — the user wants each decision recorded with its reason before it is built

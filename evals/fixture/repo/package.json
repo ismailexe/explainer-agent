@@ -1,0 +1,19 @@
+{
+  "name": "relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/check-routes.ts && tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.0",
+    "react": "^19.2.0",
+    "yaml": "^2.8.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

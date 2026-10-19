@@ -1,0 +1,8 @@
+routes:
+  - category: billing
+    team: finance
+  - category: shipping
+    team: logistics
+  - category: returns
+    team: logistics
+fallback: support
