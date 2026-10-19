@@ -10,12 +10,14 @@ exists; everything else is plumbing.
 
 ## Documents
 
-- `docs/design.md` — why the project is shaped the way it is: the problem, the
-  measured platform facts, the decisions with their reasons, the bugs that changed
-  the design, the prior art. **Read it before answering anything about why.**
-- `docs/roadmap.md` — findings A to N from real use, what was done about each, and
-  the measured eval results.
-- `evals/README.md` — the answer-quality suite and how a case is graded.
+- `docs/architecture.md` — the components, how a chat runs, where state lives, and
+  the Claude Code behaviour the project relies on.
+- `docs/decisions/` — one record per decision, with its context, the options
+  considered and the consequences. **Read the relevant one before answering
+  anything about why.**
+- `docs/evaluation.md` — how answers are measured, the results and their limits;
+  `evals/README.md` — how to run the suite.
+- `docs/usage.md` — how the person uses the explainer.
 
 ## Local name → industry term
 
@@ -42,7 +44,7 @@ exists; everything else is plumbing.
 
 ## Conflict rule
 
-`docs/design.md` and `docs/roadmap.md` state the intent and the decisions; the code
+`docs/architecture.md` and `docs/decisions/` state the intent and the decisions; the code
 states what actually happens. When they disagree the **code wins on behaviour** and
 the documents win on **intent** — and say out loud that they diverge, because a
 stale document is the failure mode this project is most exposed to.
